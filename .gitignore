@@ -1,0 +1,24 @@
+@'
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+.venv/
+**/.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+*.db
+*.sqlite
+*.sqlite3
+
+*.pem
+*.key
+
+.vscode/
+.idea/
+'@ | Set-Content -Encoding utf8 .gitignore
