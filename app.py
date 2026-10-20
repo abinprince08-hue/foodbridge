@@ -272,9 +272,7 @@ def enriched_donations(sql="", params=()):
 @app.get("/")
 
 def home():
-
-    return jsonify({"service": "FoodBridge API", "status": "running"})
-
+    return render_template("index.html")
 
 @app.get("/api/health")
 def health():
