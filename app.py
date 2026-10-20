@@ -5,13 +5,14 @@ import json
 import os
 import re
 import uuid
+import CORS
+
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, session, render_templatefrom flask_cors 
-import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 
 ROOT = Path(__file__).resolve().parent
