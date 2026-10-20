@@ -220,27 +220,32 @@ def _no_key(kind: str) -> dict:
 
 
 def _looks_like_customer_review(text: str) -> bool:
-    """Reject generic place/listing snippets so they are not shown as customer reviews."""
-    text = re.sub(r"\\s+", " ", (text or "")).strip()
+    """Accept only plausible customer-review excerpts; reject login walls and place cards."""
+    text = re.sub(r"\s+", " ", (text or "")).strip()
     if len(text) < 45:
         return False
 
     lower = text.lower()
-    listing_phrases = (
+    blocked_phrases = (
+        "sign in to continue", "sign in to google", "log in to continue",
+        "login to continue", "you must sign in", "please sign in",
+        "google accounts", "before you continue to google", "consent.google.com",
+        "enable javascript", "unusual traffic", "verify you are human",
         "directions", "open now", "closed now", "business profile",
-        "website", "get directions", "popular times", "reviews for",
-        "google maps", "place details", "located at",
+        "get directions", "popular times", "place details", "located at",
+        "website", "reviews for", "google maps",
     )
-    if any(phrase in lower for phrase in listing_phrases):
+    if any(phrase in lower for phrase in blocked_phrases):
         return False
 
-    # Prefer snippets that read like an individual's experience, rather than a listing.
+    # A snippet must look like a person's experience, not a business description.
     review_signals = (
         "i ", "i'm ", "i've ", "we ", "my ", "our ",
         "food was", "service was", "staff was", "staff were",
         "we ordered", "i ordered", "visited", "experience",
         "delicious", "wait time", "portion", "friendly",
         "not worth", "highly recommend", "would recommend",
+        "the food", "the staff", "the service", "ordered the",
     )
     return any(signal in lower for signal in review_signals)
 
