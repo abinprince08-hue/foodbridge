@@ -5,7 +5,6 @@ import json
 import os
 import re
 import uuid
-import CORS
 
 from datetime import datetime
 from functools import wraps
