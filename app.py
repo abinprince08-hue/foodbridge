@@ -5,13 +5,12 @@ import json
 import os
 import re
 import uuid
-
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, g, jsonify, request, session, render_template
+from flask import Flask, g, jsonify, request, session
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -271,8 +270,10 @@ def enriched_donations(sql="", params=()):
 
 
 @app.get("/")
+
 def home():
-    return render_template("index.html")
+
+    return jsonify({"service": "FoodBridge API", "status": "running"})
 
 
 @app.get("/api/health")
@@ -511,7 +512,140 @@ def donation_detail(donation_id):
     return jsonify(item)
 
 
+def _chat_conversation_detail(conversation_id):
+    return db.one("""SELECT c.*, d.ref AS donation_ref, d.title AS donation_title,
+        d.status AS donation_status, r.name AS restaurant_name, n.name AS ngo_name
+        FROM chat_conversations c
+        JOIN donations d ON d.id=c.donation_id
+        JOIN restaurants r ON r.id=c.restaurant_id
+        JOIN ngos n ON n.id=c.ngo_id
+        WHERE c.id=?""", (conversation_id,))
 
+
+def _current_user_can_access_chat(conversation):
+    user = g.current_user
+    if user["role"] == "restaurant":
+        return user.get("profile_id") == conversation["restaurant_id"]
+    if user["role"] == "ngo":
+        return user.get("profile_id") == conversation["ngo_id"]
+    return False
+
+
+def _chat_sender_name(user):
+    if user["role"] == "restaurant":
+        profile = db.one("SELECT name FROM restaurants WHERE id=?", (user["profile_id"],))
+    elif user["role"] == "ngo":
+        profile = db.one("SELECT name FROM ngos WHERE id=?", (user["profile_id"],))
+    else:
+        profile = None
+    return (profile or {}).get("name") or user.get("username") or "Participant"
+
+
+@app.post("/api/donations/<donation_id>/chat")
+@require_roles("ngo")
+def start_donation_chat(donation_id):
+    """Create or return the private pre-request conversation for this NGO and donation."""
+    ngo_id = g.current_user.get("profile_id")
+    if not ngo_id:
+        return api_error("Your account is not linked to an NGO profile.", 403)
+
+    donation = db.one("SELECT id, restaurant_id, status FROM donations WHERE id=?", (donation_id,))
+    if not donation:
+        return api_error("Donation not found.", 404)
+
+    existing = db.one(
+        "SELECT id FROM chat_conversations WHERE donation_id=? AND ngo_id=?",
+        (donation_id, ngo_id),
+    )
+    if not existing and donation["status"] in ("Cancelled", "Completed"):
+        return api_error("A new chat cannot be started for a cancelled or completed donation.", 409)
+
+    created = existing is None
+    if created:
+        now = datetime.now().isoformat(timespec="microseconds")
+        conversation_id = str(uuid.uuid4())
+        # INSERT OR IGNORE handles two rapid clicks safely in SQLite and MySQL.
+        with db.connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO chat_conversations "
+                "(id, donation_id, restaurant_id, ngo_id, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (conversation_id, donation_id, donation["restaurant_id"], ngo_id, now, now),
+            )
+
+    conversation = db.one(
+        "SELECT id FROM chat_conversations WHERE donation_id=? AND ngo_id=?",
+        (donation_id, ngo_id),
+    )
+    if not conversation:
+        return api_error("Could not open the private chat. Please try again.", 500)
+    detail = _chat_conversation_detail(conversation["id"])
+    return jsonify({"conversation": detail, "created": created}), (201 if created else 200)
+
+
+@app.get("/api/donations/<donation_id>/chats")
+@require_roles("restaurant")
+def list_donation_chats(donation_id):
+    """List only conversations attached to a donation owned by the signed-in restaurant."""
+    donation = db.one("SELECT id, restaurant_id FROM donations WHERE id=?", (donation_id,))
+    if not donation:
+        return api_error("Donation not found.", 404)
+    if donation["restaurant_id"] != g.current_user.get("profile_id"):
+        return api_error("You can only view chats for your own restaurant's donations.", 403)
+
+    chats = db.rows("""SELECT c.id, c.donation_id, c.restaurant_id, c.ngo_id,
+        c.created_at, c.updated_at, n.name AS ngo_name, n.location AS ngo_location,
+        (SELECT m.body FROM chat_messages m WHERE m.conversation_id=c.id
+          ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_message
+        FROM chat_conversations c JOIN ngos n ON n.id=c.ngo_id
+        WHERE c.donation_id=? ORDER BY c.updated_at DESC, c.id DESC""", (donation_id,))
+    return jsonify({"chats": chats})
+
+
+@app.get("/api/chats/<conversation_id>")
+@require_roles("restaurant", "ngo")
+def get_chat(conversation_id):
+    conversation = _chat_conversation_detail(conversation_id)
+    # Return 404 to avoid revealing that another organisation's private chat exists.
+    if not conversation or not _current_user_can_access_chat(conversation):
+        return api_error("Private chat not found.", 404)
+
+    messages = db.rows("""SELECT id, conversation_id, sender_user_id, sender_role,
+        sender_name, body, created_at FROM chat_messages
+        WHERE conversation_id=? ORDER BY created_at DESC, id DESC LIMIT 300""", (conversation_id,))
+    messages.reverse()
+    return jsonify({"conversation": conversation, "messages": messages})
+
+
+@app.post("/api/chats/<conversation_id>/messages")
+@require_roles("restaurant", "ngo")
+def send_chat_message(conversation_id):
+    conversation = _chat_conversation_detail(conversation_id)
+    if not conversation or not _current_user_can_access_chat(conversation):
+        return api_error("Private chat not found.", 404)
+
+    data = body_json()
+    body = str(data.get("body", data.get("message", ""))).strip()
+    if not body:
+        return api_error("Write a message before sending.")
+    if len(body) > 2000:
+        return api_error("Messages must be 2,000 characters or fewer.")
+
+    message_id = str(uuid.uuid4())
+    now = datetime.now().isoformat(timespec="microseconds")
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO chat_messages "
+            "(id, conversation_id, sender_user_id, sender_role, sender_name, body, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (message_id, conversation_id, g.current_user["id"], g.current_user["role"],
+             _chat_sender_name(g.current_user), body, now),
+        )
+        conn.execute("UPDATE chat_conversations SET updated_at=? WHERE id=?", (now, conversation_id))
+
+    message = db.one("SELECT id, conversation_id, sender_user_id, sender_role, sender_name, body, created_at FROM chat_messages WHERE id=?", (message_id,))
+    # Messaging deliberately does not create, accept, or modify a donation request.
+    return jsonify({"message": message}), 201
 
 
 @app.get("/api/ngos")
