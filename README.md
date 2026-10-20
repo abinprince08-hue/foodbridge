@@ -1,161 +1,85 @@
-# FoodBridge
+# FoodBridge backend (Flask + MySQL + TinyFish)
 
-FoodBridge connects restaurants that have surplus food with NGOs and community kitchens that can collect it. The project includes a Flask API, database persistence, role-based workflows, and optional TinyFish-powered public research through FoodTrust.
+This backend is regenerated to match the existing FoodBridge frontend API. It keeps the existing route names and JSON shapes for login, registration, donation listings, requests, dashboards, admin review, contact messages, and FoodTrust.
 
-> **Deployment note:** GitHub is where the source code is stored. GitHub Pages can serve the static frontend, but it cannot run the Flask API or store live database changes. The backend must run on a Python web host, and its database must be hosted somewhere the backend can securely reach.
+## Included files
 
-## Project layout
+- `app.py` — Flask API routes, sessions, role checks, CORS and health endpoint.
+- `database.py` — SQLite/MySQL schema and persistence operations.
+- `tinyfish_client.py` — TinyFish Search + Fetch integration and source-linked reports.
+- `requirements.txt` — Python dependencies for deployment.
+- `Procfile` — Render/Gunicorn start command.
+- `.env.example` — template only; it contains no live credentials.
+- `FRONTEND_API_CONNECTION.txt` — tiny API URL / credentials adjustment needed when the frontend stays on GitHub Pages.
 
-```text
-FoodBridge/
-├── README.md
-├── .gitignore
-├── .venv/                       # Local only; do not commit
-└── foodbridge-backend/
-    ├── app.py                   # Flask API
-    ├── database.py              # SQLite/MySQL persistence and schema
-    ├── tinyfish_client.py       # TinyFish Search/Fetch integration
-    ├── requirements.txt         # Python dependencies
-    ├── Procfile                 # Gunicorn start command
-    ├── .env.example             # Safe configuration template
-    ├── .env                     # Local secrets; create this yourself; do not commit
-    └── FRONTEND_API_CONNECTION.txt
-```
+## Run locally with SQLite first
 
-Your existing frontend files may be stored elsewhere in the repository. Keep their paths and existing design unless you intentionally change them.
-
-## Features
-
-- Restaurant and NGO registration with admin approval
-- Login/logout and server-side role checks
-- Donation listings, search, filters, detail pages, and pickup deadlines
-- NGO donation requests and restaurant approval/decline
-- Donation status and handover tracking
-- NGO directory and requirement updates
-- Admin registration review and contact-message management
-- FoodTrust research with source-linked TinyFish results when an API key is configured
-- SQLite for local development, or MySQL for a hosted database
-
-## Local development on Windows
-
-These commands assume the `.venv` folder is in the top-level `FoodBridge` folder and the backend is in `foodbridge-backend`.
-
-1. Open PowerShell at the project root:
-
-   ```powershell
-   cd "C:\Users\abinp\Downloads\FoodBridge"
-   ```
-
-2. Create a virtual environment if it does not already exist, then install packages:
-
-   ```powershell
-   python -m venv .venv
-   .\.venv\Scripts\python.exe -m pip install -r .\foodbridge-backend\requirements.txt
-   ```
-
-3. Create a private `.env` file from the example:
-
-   ```powershell
-   Copy-Item .\foodbridge-backend\.env.example .\foodbridge-backend\.env
-   ```
-
-4. Open `foodbridge-backend\.env` and configure it for a local SQLite run. At minimum, set these values:
+1. Open this folder in VS Code.
+2. Create `.env` by copying `.env.example`.
+3. For local development, set these values in `.env`:
 
    ```env
    FOODBRIDGE_DB_BACKEND=sqlite
    FOODBRIDGE_DB=./foodbridge.db
    FOODBRIDGE_SEED_DEMO_DATA=true
-   FOODBRIDGE_SECRET_KEY=change-this-local-development-secret
-   FOODBRIDGE_ADMIN_USERNAME=admin
-   FOODBRIDGE_ADMIN_EMAIL=admin@example.com
-   FOODBRIDGE_ADMIN_PASSWORD=choose-a-strong-local-password
-   TINYFISH_API_KEY=
+   FOODBRIDGE_SECRET_KEY=local-dev-only-change-this-secret
+   FOODBRIDGE_ADMIN_PASSWORD=ChangeThisAdminPassword123!
    ```
 
-   Keep the rest of the template if you plan to switch to MySQL later. Do not put real passwords or keys in `.env.example`.
+4. Install packages:
 
-5. Start the backend from its own folder so the relative SQLite path is easy to find:
-
-   ```powershell
-   cd .\foodbridge-backend
-   ..\.venv\Scripts\python.exe app.py
+   ```bash
+   python -m pip install -r requirements.txt
    ```
 
-6. Open these local endpoints:
+5. Run:
 
-   - API status: <http://127.0.0.1:5000/>
-   - Database health check: <http://127.0.0.1:5000/api/health>
-   - Bootstrap data: <http://127.0.0.1:5000/api/bootstrap>
+   ```bash
+   python app.py
+   ```
 
-   The health endpoint should return `{"status":"ok","database":"connected"}` when the database is reachable. Press `Ctrl+C` in the terminal to stop the server.
+6. Test `http://127.0.0.1:5000/api/health`. It should return `{"status":"ok","database":"connected"}`.
 
-If PowerShell says a package is missing, install requirements through the same `.venv` interpreter used to run the app. For example, run `..\.venv\Scripts\python.exe -m pip install -r requirements.txt` from inside `foodbridge-backend`.
+The local SQLite path is for development only. The project seeds demonstration data by default in SQLite if `FOODBRIDGE_SEED_DEMO_DATA` is unset; setting it to `true` makes that explicit.
 
-## TinyFish / FoodTrust configuration
+## Connect a cloud MySQL database
 
-TinyFish research is optional. Add a valid `TINYFISH_API_KEY` to `foodbridge-backend\.env` for local development, or set it in the backend host's private environment settings after deployment. Restart the backend after changing environment variables.
+1. Create an empty MySQL database in your database hosting provider.
+2. Copy the actual host, port, database name, username and password into `.env` locally, or into the host's private environment-variable settings after deployment.
+3. Set `FOODBRIDGE_DB_BACKEND=mysql`.
+4. For a provider such as Aiven, download its CA certificate, make it available to the app as a private file, and set `MYSQL_SSL_CA` to its path. Keep `MYSQL_SSL_REQUIRED=true`.
+5. Before the first cloud launch, set a unique `FOODBRIDGE_SECRET_KEY` (at least 32 characters), `FOODBRIDGE_ADMIN_PASSWORD` (at least 12 characters), `FOODBRIDGE_ADMIN_USERNAME`, and `FOODBRIDGE_ADMIN_EMAIL`.
+6. Keep `FOODBRIDGE_SEED_DEMO_DATA=false` for a clean online database. On first startup, the backend creates its tables and configured administrator; it does not add the sample restaurants, NGOs, donations or demo accounts.
 
-If a research request fails, use the HTTP status and response details returned by the backend to investigate. Common categories include an invalid key, denied access, quota/rate limiting, invalid request parameters, or an upstream service problem. Do not paste API keys into issues, screenshots, or public logs. Do not treat search excerpts as certification or as proof of current food-safety conditions.
+If you purposely want demo data for a demo deployment, enable `FOODBRIDGE_SEED_DEMO_DATA=true` only in a controlled demo environment. Do not enable public demo accounts in a real deployment.
 
-## Use a cloud MySQL database
+## Deploy the API on Render
 
-To use MySQL instead of SQLite, create a MySQL database with your database hosting provider, then set these environment variables using the actual connection details from that provider:
+In Render, create a Web Service connected to the GitHub repository that contains these files.
 
-```env
-FOODBRIDGE_DB_BACKEND=mysql
-MYSQL_HOST=your-provider-hostname
-MYSQL_PORT=3306
-MYSQL_DATABASE=foodbridge
-MYSQL_USER=your-provider-username
-MYSQL_PASSWORD=your-provider-password
-MYSQL_SSL_CA=ca.pem
-MYSQL_SSL_REQUIRED=true
-FOODBRIDGE_SEED_DEMO_DATA=false
-```
+- Build command: `pip install -r requirements.txt`
+- Start command: `gunicorn app:app`
 
-Use the actual port, database name, and connection values supplied by your provider; `3306` is only the usual MySQL port. Configure TLS according to the provider's instructions and place its CA certificate where the deployed backend can read it. Never commit the certificate or database credentials.
+Set the variables from `.env.example` in Render's **Environment** panel. Do not upload `.env` or commit passwords/API keys. If the backend is in a subfolder of your repository, select that folder as the service's Root Directory.
 
-On startup, the backend initializes its schema and, when demo seeding is disabled, creates/configures the administrator using the private admin environment variables. Back up any data before changing database settings. The SQLite-to-MySQL migration script is only needed if you decide to copy existing SQLite records; it is not required for a clean new database.
+The API root `/` returns a small JSON status document. `/api/health` checks database connectivity. The web app itself remains on GitHub Pages unless you choose to serve it from the same origin as the API.
 
-## Deploy the backend on Render
+## Connect the existing GitHub Pages frontend
 
-1. Push the source code to GitHub. Include `foodbridge-backend/requirements.txt`, `app.py`, `database.py`, `tinyfish_client.py`, `Procfile`, `.env.example`, and this README. Do **not** commit `.env`, `.venv`, local database files, API keys, passwords, or private certificates.
-2. In Render, create a **Web Service** and connect the repository.
-3. Set the service's **Root Directory** to `foodbridge-backend`.
-4. Use these commands:
+The current frontend calls relative URLs such as `/api/bootstrap`. Since GitHub Pages and the API have different origins, those calls need the API base URL. Follow the exact small `api()` helper replacement in `FRONTEND_API_CONNECTION.txt`; it does not change the UI or page design.
 
-   - Build: `pip install -r requirements.txt`
-   - Start: `gunicorn app:app`
+Set `FRONTEND_ORIGINS` in the backend host to the exact origin of your GitHub Pages website, for example `https://YOUR-USERNAME.github.io` (no path and no trailing slash). Add your local development origin as a comma-separated entry if needed. Do not use `*` with credentialed CORS.
 
-5. In Render's private **Environment** settings, add the production values from `.env.example`. Use a unique `FOODBRIDGE_SECRET_KEY` (at least 32 characters), a strong `FOODBRIDGE_ADMIN_PASSWORD` (at least 12 characters), the configured admin username/email, cloud MySQL credentials, TLS settings, and `FOODBRIDGE_SEED_DEMO_DATA=false` for a clean deployment.
-6. Provide the database provider's CA certificate as a private file if needed, and set `MYSQL_SSL_CA` to its path.
-7. Deploy and test `/api/health` on the Render URL before testing all workflows.
+Cross-site login sessions require HTTPS and credentialed fetch requests. Browser restrictions on third-party cookies may still block cross-site cookies. If login does not persist reliably, the most robust deployment is to serve the frontend and backend from the same origin while continuing to keep the source code in GitHub.
 
-Do not use the local SQLite file as a substitute for persistent cloud storage in a deployed service. A host's temporary filesystem can be cleared on restart or redeploy.
+## TinyFish
 
-## Connect GitHub Pages frontend to the backend
+Set `TINYFISH_API_KEY` in the private environment settings. The key is read by the backend only. The TinyFish research response includes status and concise HTTP response details when API requests fail; it does not claim that a restaurant is certified or that reviews are complete/current.
 
-If the frontend stays on GitHub Pages and the Flask backend runs on Render, the frontend API helper must call the absolute Render URL instead of relative paths like `/api/bootstrap`. See `foodbridge-backend/FRONTEND_API_CONNECTION.txt` for the helper replacement.
+## Security notes
 
-Set `FRONTEND_ORIGINS` in the backend's environment settings to the exact **origin** of the GitHub Pages site, for example `https://YOUR-USERNAME.github.io` (no path and no trailing slash). Add a local development origin only if needed. Do not use `*` with credentialed requests.
-
-Login relies on session cookies. Because GitHub Pages and Render are different origins, browser third-party-cookie restrictions can affect whether sessions persist. If login is unreliable, consider serving the frontend and backend from the same origin while still storing the source code on GitHub.
-
-## Security checklist
-
-- Keep `.env`, API keys, database passwords, private keys and CA certificates out of Git.
-- Keep `.env.example` limited to placeholders.
-- Rotate any real credential that was accidentally pushed to a public repository.
-- Use HTTPS for the site/API and TLS for cloud database connections.
-- Use strong, unique production secrets and disable demo accounts/data in a public deployment.
-- Treat frontend checks as usability features only; the Flask backend must enforce authorization.
-
-## Troubleshooting
-
-- **`ModuleNotFoundError`:** Install `requirements.txt` using the same `.venv` interpreter used to run `app.py`.
-- **`API key not configured`:** Check that `TINYFISH_API_KEY` is set in `foodbridge-backend\.env` locally or in the hosting provider's environment, then restart/redeploy.
-- **MySQL connection error:** Check hostname, port, database name, username, password, network access rules, and TLS certificate path.
-- **GitHub Pages shows a failed API request:** Confirm that the frontend API base URL points to your deployed backend and `FRONTEND_ORIGINS` matches the GitHub Pages origin.
-- **`/api/health` returns 503:** Check the backend logs and database connection configuration.
-
-The app has not been verified against your live cloud MySQL service or TinyFish account. Test those integrations with your own credentials before relying on the deployed application.
+- Never commit `.env`, database passwords, TinyFish keys or CA/private credentials.
+- The backend checks roles on protected operations. The frontend's role display is not treated as authorization.
+- Admin credentials must be configured before initializing a clean MySQL deployment.
+- Use HTTPS and TLS to the database where supported.
+- The source code was syntax-checked in this environment, but it has not been connected to your actual MySQL host or TinyFish account. Confirm `/api/health` and a real research run after configuring your own credentials.
