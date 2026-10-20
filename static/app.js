@@ -291,7 +291,23 @@ function trustReport(report, restaurantName) {
 async function renderDetail(id) {
   const view=$("#view-detail"); view.innerHTML='<div class="loading">Opening donation…</div>';
   try {
-    const item=await api(`/api/donations/${encodeURIComponent(id)}`); const ownProfile=selectedProfile();
+    const item=await api(`/api/donations/${encodeURIComponent(id)}`); 
+    const ownProfile=selectedProfile();
+    const canChat =
+      state.role === "NGO" ||
+      (state.role === "Restaurant" &&
+      ownProfile?.id === item.restaurant_id);
+
+    const chatButton = canChat
+      ? `<div class="panel">
+         <button class="button button-secondary"
+               data-open-chat
+               data-donation-id="${escapeHTML(item.id)}">
+           Chat with ${state.role === "NGO" ? "Restaurant" : "NGO"}
+         </button>
+       </div>`
+     : "";
+// FOODBRIDGE CHAT BUTTON: END
     const imageUrl = safeHttpUrl(item.image_url);
     const foodPhoto = imageUrl
       ? `<img src="${escapeHTML(imageUrl)}" alt="Food photo for ${escapeHTML(item.title)}" loading="lazy" decoding="async" onerror="this.parentElement.classList.add('image-missing');this.remove()">`
@@ -309,7 +325,7 @@ async function renderDetail(id) {
       if(mine&&item.status==="Accepted")actionPanel='<div class="panel"><h2>Collection</h2><p>Your request is accepted. Confirm when the food has been collected.</p><button class="button button-primary" data-status="Picked up">Confirm pickup</button></div>';
       if(mine&&item.status==="Picked up")actionPanel='<div class="panel"><h2>Handover</h2><p>Confirm the handover when the donation has been received.</p><button class="button button-primary" data-status="Completed">Confirm handover complete</button></div>';
     }
-    view.innerHTML=`<button class="button button-quiet" data-page="explore">← Back to donations</button><div class="page-heading" style="margin-top:15px"><div class="eyebrow">${escapeHTML(item.ref)}</div><h1>${escapeHTML(item.title)}</h1><p>${escapeHTML(item.restaurant_name)} · ${escapeHTML(item.location)}</p></div><div class="content-grid"><div><div class="detail-photo">${foodPhoto}</div><h2 class="detail-title">${escapeHTML(item.quantity)} ${escapeHTML(item.unit)} · ${escapeHTML(item.category)}</h2><div class="listing-tags">${statusBadge(item.status)}${item.trust_available?'<span class="pill">FoodTrust evidence available</span>':""}</div><div class="detail-section"><h2>About this donation</h2><p>${escapeHTML(item.description||"No additional description provided.")}</p></div><div class="detail-section"><h2>Collection details</h2><p><b>Available from:</b> ${escapeHTML(fmtTime(item.available_from))}<br><b>Pickup deadline:</b> ${escapeHTML(fmtTime(item.deadline))}<br><b>Collection point:</b> ${escapeHTML(item.location)}<br><b>Storage and handling:</b> ${escapeHTML(item.handling||"Not provided")}<br><b>Packaging:</b> ${escapeHTML(item.packaging||"Not provided")}<br><b>Allergens:</b> ${escapeHTML(item.allergens||"Not provided")}${item.refrigeration?"<br><b>Requires refrigeration</b>":""}</p>${item.contact_instructions?`<p><b>Collection instructions:</b> ${escapeHTML(item.contact_instructions)}</p>`:""}<div class="notice warning">FoodBridge does not certify food safety. Confirm applicable handling and collection conditions before accepting.</div></div></div><aside><div class="panel"><h2>Donor</h2><div class="donor-name">${escapeHTML(item.restaurant_name)}</div><p>${escapeHTML(item.restaurant_location||"")}</p>${donorWebsiteUrl?`<a href="${escapeHTML(donorWebsiteUrl)}" target="_blank" rel="noopener noreferrer">Visit submitted website ↗</a>`:""}</div>${trustReport(item.foodtrust,item.restaurant_name)}${actionPanel}</aside></div>`;
+    view.innerHTML=`<button class="button button-quiet" data-page="explore">← Back to donations</button><div class="page-heading" style="margin-top:15px"><div class="eyebrow">${escapeHTML(item.ref)}</div><h1>${escapeHTML(item.title)}</h1><p>${escapeHTML(item.restaurant_name)} · ${escapeHTML(item.location)}</p></div><div class="content-grid"><div><div class="detail-photo">${foodPhoto}</div><h2 class="detail-title">${escapeHTML(item.quantity)} ${escapeHTML(item.unit)} · ${escapeHTML(item.category)}</h2><div class="listing-tags">${statusBadge(item.status)}${item.trust_available?'<span class="pill">FoodTrust evidence available</span>':""}</div><div class="detail-section"><h2>About this donation</h2><p>${escapeHTML(item.description||"No additional description provided.")}</p></div><div class="detail-section"><h2>Collection details</h2><p><b>Available from:</b> ${escapeHTML(fmtTime(item.available_from))}<br><b>Pickup deadline:</b> ${escapeHTML(fmtTime(item.deadline))}<br><b>Collection point:</b> ${escapeHTML(item.location)}<br><b>Storage and handling:</b> ${escapeHTML(item.handling||"Not provided")}<br><b>Packaging:</b> ${escapeHTML(item.packaging||"Not provided")}<br><b>Allergens:</b> ${escapeHTML(item.allergens||"Not provided")}${item.refrigeration?"<br><b>Requires refrigeration</b>":""}</p>${item.contact_instructions?`<p><b>Collection instructions:</b> ${escapeHTML(item.contact_instructions)}</p>`:""}<div class="notice warning">FoodBridge does not certify food safety. Confirm applicable handling and collection conditions before accepting.</div></div></div><aside><div class="panel"><h2>Donor</h2><div class="donor-name">${escapeHTML(item.restaurant_name)}</div><p>${escapeHTML(item.restaurant_location||"")}</p>${donorWebsiteUrl?`<a href="${escapeHTML(donorWebsiteUrl)}" target="_blank" rel="noopener noreferrer">Visit submitted website ↗</a>`:""}</div>${trustReport(item.foodtrust,item.restaurant_name)}${chatButton}${actionPanel}</aside></div>`;
     $("#request-form")?.addEventListener("submit", async event => {
       event.preventDefault();
       const submit = event.currentTarget.querySelector('button[type="submit"]');
@@ -527,6 +543,15 @@ function bindGlobalEvents(){
   if (globalEventsBound) return;
   globalEventsBound = true;
   document.addEventListener("click",event=>{
+    const chatButton = event.target.closest("[data-open-chat]");
+    if (chatButton) {
+       event.preventDefault();
+       const donationId = chatButton.dataset.donationId;
+       if (donationId) {
+         openPrivateChat(donationId);
+       }
+     return;
+} 
     const accountButton = event.target.closest("#account-action");
     if (accountButton?.dataset.logout === "true") { event.preventDefault(); logout(); return; }
     const pageButton = event.target.closest("[data-page]");
