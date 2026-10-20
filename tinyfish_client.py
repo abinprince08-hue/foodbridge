@@ -250,8 +250,55 @@ def _looks_like_customer_review(text: str) -> bool:
     return any(signal in lower for signal in review_signals)
 
 
+def _review_source_host(url: str) -> str:
+    """Return a recognised public review host, or an empty string."""
+    host = (urlparse(url).hostname or "").lower()
+    allowed = (
+        "google.com", "tripadvisor.com", "restaurantguru.com",
+        "justdial.com", "zomato.com", "mouthshut.com", "yelp.com",
+        "wanderlog.com", "magicpin.in",
+    )
+    return next((domain for domain in allowed if host == domain or host.endswith("." + domain)), "")
+
+
+def _extract_review_paragraphs(content: str) -> list[str]:
+    """Conservatively extract review-like paragraphs from fetched public pages."""
+    if not content:
+        return []
+    boilerplate = (
+        "sign in to continue", "sign in to google", "log in to continue",
+        "login to continue", "you must sign in", "please sign in",
+        "before you continue to google", "enable javascript",
+        "verify you are human", "unusual traffic", "cookie policy",
+        "privacy policy", "terms of service", "write a review",
+        "read more reviews", "see all reviews", "sort by", "get directions",
+        "open now", "closed now", "popular times", "claim this business",
+        "all rights reserved", "javascript is required",
+    )
+    results, seen = [], set()
+    for raw in re.split(r"[\r\n]+", content):
+        text = re.sub(r"\s+", " ", raw).strip(" #>*-\t")
+        if not 55 <= len(text) <= 650:
+            continue
+        lower = text.lower()
+        if any(phrase in lower for phrase in boilerplate):
+            continue
+        if lower.startswith(("http://", "https://", "cookie", "menu", "home", "photos")):
+            continue
+        if not _looks_like_customer_review(text):
+            continue
+        key = lower[:180]
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(text[:420])
+        if len(results) >= 8:
+            break
+    return results
+
+
 def research_restaurant(url: str, restaurant_name: str = "") -> dict:
-    """Find review text for a restaurant; never label generic Maps listings as reviews."""
+    """Search public review sources and return only review-like text that can be verified."""
     api_key = _get_api_key()
     if not api_key:
         return _no_key("restaurant")
@@ -259,99 +306,122 @@ def research_restaurant(url: str, restaurant_name: str = "") -> dict:
     try:
         safe_url = validate_public_url(url)
         name = (restaurant_name or urlparse(safe_url).hostname or "Restaurant").strip()
-
-        # Search specifically for review text, not just the Maps place card.
         queries = [
-            f'site:google.com/maps/place "{name}" "food was" OR "service was" OR "I visited"',
-            f'site:google.com/maps/place "{name}" customer review',
-            f'"{name}" Google Maps review customer experience',
+            f'"{name}" restaurant customer reviews',
+            f'"{name}" restaurant review experience',
+            f'site:tripadvisor.com "{name}" reviews',
+            f'site:restaurantguru.com "{name}" reviews',
+            f'site:justdial.com "{name}" reviews',
+            f'site:zomato.com "{name}" reviews',
+            f'site:google.com/maps/place "{name}" review',
         ]
 
-        candidates = []
-        seen_urls = set()
+        candidates, seen_urls, search_errors = [], set(), []
         for query in queries:
-            for item in _search(query, api_key):
-                candidate = str(item.get("url") or "").strip()
-                parsed = urlparse(candidate)
-                host = (parsed.hostname or "").lower()
-                is_google_maps = (
-                    host in {"google.com", "www.google.com", "maps.google.com"}
-                    and "/maps" in parsed.path
-                )
-                if not is_google_maps or candidate in seen_urls:
-                    continue
-                seen_urls.add(candidate)
-                candidates.append(item)
+            try:
+                for item in _search(query, api_key):
+                    candidate = str(item.get("url") or "").strip()
+                    if not candidate:
+                        continue
+                    host = _review_source_host(candidate)
+                    if not host or candidate in seen_urls:
+                        continue
+                    try:
+                        candidate = validate_public_url(candidate)
+                    except ValueError:
+                        continue
+                    seen_urls.add(candidate)
+                    candidates.append({
+                        "url": candidate,
+                        "title": str(item.get("title") or f"Reviews for {name}"),
+                        "site_name": host,
+                        "snippet": re.sub(r"\s+", " ", str(item.get("snippet") or "")).strip(),
+                    })
+            except requests.RequestException as exc:
+                search_errors.append(_api_error_note(exc, "search public restaurant reviews"))
 
-        featured, sources = [], []
+        featured, sources, seen_excerpts = [], [], set()
         for item in candidates:
-            snippet = re.sub(r"\\s+", " ", str(item.get("snippet") or "")).strip()
-            # Do not display a listing description, address, or rating summary as a review.
-            if not _looks_like_customer_review(snippet):
-                continue
+            snippet = item["snippet"]
+            if _looks_like_customer_review(snippet):
+                key = re.sub(r"\W+", " ", snippet.lower())[:180]
+                if key not in seen_excerpts:
+                    seen_excerpts.add(key)
+                    featured.append({"excerpt": snippet[:420], "title": item["title"], "url": item["url"]})
+                    sources.append({
+                        "url": item["url"], "title": item["title"], "site_name": item["site_name"],
+                        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                        "source_type": "Review search excerpt", "snippet": snippet[:420],
+                    })
 
-            candidate = str(item.get("url") or "").strip()
-            title = str(item.get("title") or f"Customer review for {name}")
-            featured.append({
-                "excerpt": snippet[:420],
-                "title": title,
-                "url": candidate,
-            })
-            sources.append({
-                "url": candidate,
-                "title": title,
-                "site_name": "Google Maps",
-                "retrieved_at": datetime.now(timezone.utc).isoformat(),
-                "source_type": "Google Maps review search excerpt",
-                "snippet": snippet[:420],
-            })
+        fetch_candidates = candidates[:6]
+        try:
+            fetched = _fetch([item["url"] for item in fetch_candidates], api_key)
+        except requests.RequestException as exc:
+            fetched = []
+            search_errors.append(_api_error_note(exc, "fetch public review pages"))
+
+        for index, item in enumerate(fetch_candidates):
+            page = _get_page(fetched, item["url"], index)
+            content = _page_text(page)
+            page_url = (
+                (page.get("final_url") or page.get("url") or item["url"])
+                if isinstance(page, dict) else item["url"]
+            )
+            if any(term in content.lower() for term in (
+                "sign in to continue", "login to continue", "before you continue to google",
+                "verify you are human", "unusual traffic",
+            )):
+                continue
+            for excerpt in _extract_review_paragraphs(content):
+                key = re.sub(r"\W+", " ", excerpt.lower())[:180]
+                if key in seen_excerpts:
+                    continue
+                seen_excerpts.add(key)
+                featured.append({"excerpt": excerpt, "title": item["title"], "url": page_url})
+                sources.append({
+                    "url": page_url, "title": item["title"], "site_name": item["site_name"],
+                    "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                    "source_type": "Fetched public review page excerpt", "snippet": excerpt,
+                })
+                if len(featured) >= 5:
+                    break
             if len(featured) >= 5:
                 break
 
         if featured:
             state = "Review excerpts found"
             note = (
-                "These are review-like excerpts returned by TinyFish search, not a complete "
-                "feed of Google Maps reviews. Open the source to verify the review and its context."
+                "These are review-like excerpts extracted from public search results or fetched pages, "
+                "not a complete feed of customer reviews. Open each source to verify its context. "
+                "Some review sites may block automated access."
             )
         else:
             state = "No review text found"
             note = (
-                "TinyFish did not return verifiable customer-review text for this restaurant. "
-                "Google Maps search results often expose the place listing rather than individual "
-                "reviews. No place descriptions or rating summaries were mislabeled as reviews."
+                "TinyFish could not retrieve verifiable customer-review text from the public sources "
+                "it returned. Some review sites require JavaScript, sign-in, or block automated access. "
+                "No generic place descriptions or login prompts were labelled as reviews."
             )
+            if search_errors:
+                note += " Latest retrieval issue: " + search_errors[-1]
 
         return {
-            "kind": "restaurant",
-            "state": state,
-            "observations": [],
-            "featured_reviews": featured,
-            "sources": sources,
-            "basic_info": "",
-            "query": queries,
-            "note": note,
+            "kind": "restaurant", "state": state, "observations": [],
+            "featured_reviews": featured[:5], "sources": sources[:5], "basic_info": "",
+            "query": queries, "note": note,
         }
 
     except requests.RequestException as exc:
         return {
-            "kind": "restaurant",
-            "state": "API request failed",
-            "observations": [],
-            "featured_reviews": [],
-            "sources": [],
-            "basic_info": "",
-            "note": _api_error_note(exc, "search Google customer reviews"),
+            "kind": "restaurant", "state": "API request failed", "observations": [],
+            "featured_reviews": [], "sources": [], "basic_info": "",
+            "note": _api_error_note(exc, "search and fetch public customer reviews"),
         }
     except (ValueError, TypeError) as exc:
         return {
-            "kind": "restaurant",
-            "state": "Research unavailable",
-            "observations": [],
-            "featured_reviews": [],
-            "sources": [],
-            "basic_info": "",
-            "note": str(exc),
+            "kind": "restaurant", "state": "Research unavailable", "observations": [],
+            "featured_reviews": [], "sources": [], "basic_info": "", "note": str(exc),
         }
 
 
