@@ -10,8 +10,7 @@ from functools import wraps
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, g, jsonify, request, session
-from flask_cors import CORS
+from flask import Flask, g, jsonify, request, session, render_templatefrom flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 
 ROOT = Path(__file__).resolve().parent
@@ -270,10 +269,8 @@ def enriched_donations(sql="", params=()):
 
 
 @app.get("/")
-
 def home():
-
-    return jsonify({"service": "FoodBridge API", "status": "running"})
+    return render_template("index.html")
 
 
 @app.get("/api/health")
