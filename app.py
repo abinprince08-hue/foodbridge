@@ -14,7 +14,7 @@ from flask import Flask, g, jsonify, request, session, render_template
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 import time
-from datetime import timedata
+from datetime import timedelta
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
