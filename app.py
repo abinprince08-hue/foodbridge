@@ -570,26 +570,25 @@ def submit_restaurant_review(restaurant_id):
     now = datetime.now().isoformat(timespec="seconds")
     review_id = uuid.uuid4().hex
 
-        try:
-            with db.connect() as conn:
-                conn.execute("""
-                    INSERT INTO restaurant_reviews
-                        (id, restaurant_id, ngo_id, rating, review,
-                         created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE
-                        rating = VALUES(rating),
-                        review = VALUES(review),
-                        updated_at = VALUES(updated_at)
-                """, (
-                    review_id, restaurant_id, ngo_id, rating,
-                    review, now, now,
+     try:
+        with db.connect() as conn:
+            conn.execute("""
+                  INSERT INTO restaurant_reviews
+                       (id, restaurant_id, ngo_id, rating, review,
+                      created_at, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON DUPLICATE KEY UPDATE
+                      rating = VALUES(rating),
+                      review = VALUES(review),
+                      updated_at = VALUES(updated_at)
+               """, (
+                review_id, restaurant_id, ngo_id, rating,
+                review, now, now,
                 ))
-        except Exception:
-            app.logger.exception("Could not save restaurant review")
-            return api_error("Could not save the review. Please try again.", 500)
-
-    return jsonify({"message": "Your restaurant review has been saved."}), 201
+    except Exception:
+        app.logger.exception("Could not save restaurant review")
+        return api_error("Could not save the review. Please try again.", 500)
+        return jsonify({"message": "Your restaurant review has been saved."}), 201
 
 
 
