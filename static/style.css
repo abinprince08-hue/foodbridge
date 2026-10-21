@@ -130,6 +130,178 @@
   width: 100%;
   box-sizing: border-box;
 }
+```css
+/* ===== EXPLORE DONATIONS: FINAL FRONTEND FIX ===== */
+
+/* Use a consistent content width */
+#view-explore {
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+
+/* Improve heading spacing */
+#view-explore h1 {
+  margin-bottom: 8px;
+  letter-spacing: -1.2px;
+}
+
+#view-explore .page-heading,
+#view-explore .section-heading {
+  margin-bottom: 24px;
+}
+
+/* Align search and dropdowns */
+#view-explore .toolbar {
+  display: grid;
+  grid-template-columns: minmax(280px, 2fr)
+    repeat(3, minmax(150px, 0.9fr));
+  gap: 12px;
+  width: 100%;
+  align-items: end;
+}
+
+#view-explore .toolbar input,
+#view-explore .toolbar select {
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  box-sizing: border-box;
+  border: 1px solid #dce3d9;
+  border-radius: 11px;
+}
+
+/* Secondary filter controls */
+#view-explore .filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 24px;
+  width: 100%;
+  margin: 14px 0 20px;
+}
+
+#view-explore .filter-row > * {
+  min-width: 0;
+}
+
+/* Make the donation list use the available width */
+#view-explore .listing-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  gap: 16px;
+}
+
+/* Widen and improve donation cards */
+#view-explore .listing-card {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid #e3e7df;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(27, 77, 56, 0.04);
+}
+
+#view-explore .food-thumb {
+  width: 120px;
+  min-height: 140px;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+#view-explore .food-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 140px;
+  object-fit: cover;
+}
+
+/* Keep the card content from overflowing */
+#view-explore .listing-card > * {
+  min-width: 0;
+}
+
+#view-explore .listing-title {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+#view-explore .listing-meta {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+/* Consistent details button */
+#view-explore .listing-card button,
+#view-explore .listing-card .button {
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* Remove excessive empty vertical space */
+#view-explore {
+  padding-bottom: 40px;
+}
+
+#view-explore .listing-grid:empty {
+  display: none;
+}
+
+/* Tablet */
+@media (max-width: 900px) {
+  #view-explore .toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #view-explore .toolbar > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Mobile */
+@media (max-width: 580px) {
+  #view-explore .toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #view-explore .toolbar > :first-child {
+    grid-column: auto;
+  }
+
+  #view-explore .filter-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  #view-explore .listing-card {
+    grid-template-columns: 86px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+  }
+
+  #view-explore .food-thumb {
+    width: 86px;
+    min-height: 110px;
+  }
+
+  #view-explore .food-thumb img {
+    min-height: 110px;
+  }
+
+  #view-explore .listing-title {
+    font-size: 15px;
+  }
+}
+```
 
 /* FOODBRIDGE CHAT CSS: END */
 /* Keep your existing CSS above these markers */
