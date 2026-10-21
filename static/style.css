@@ -103,6 +103,34 @@
   line-height: 1.5;
 }
 
+
+.restaurant-rating {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-left: 6px;
+  font-size: 0.85rem;
+  color: #52645b;
+  vertical-align: middle;
+}
+
+.rating-stars {
+  color: #d49b18;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+#restaurant-review-form .field {
+  margin-bottom: 14px;
+}
+
+#restaurant-review-form select,
+#restaurant-review-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 /* FOODBRIDGE CHAT CSS: END */
 /* Keep your existing CSS above these markers */
 
@@ -115,3 +143,5 @@
     padding: 14px;
   }
 }
+
+
