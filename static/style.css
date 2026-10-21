@@ -332,7 +332,34 @@
   line-height: 1;
   pointer-events: none;
 }
+```css
+/* Fix search icon position inside the input */
+#view-explore .search-wrap {
+  position: relative;
+}
 
+#view-explore .search-wrap input {
+  padding-left: 42px !important;
+}
+
+#view-explore .search-wrap svg {
+  position: absolute;
+  left: 14px;
+  top: 50% !important;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  display: block;
+  margin: 0;
+  pointer-events: none;
+}
+
+/* Prevent the icon from moving when the label wraps */
+#view-explore .search-wrap {
+  display: flex;
+  align-items: center;
+}
+```
 
 /* FOODBRIDGE CHAT CSS: END */
 /* Keep your existing CSS above these markers */
