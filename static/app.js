@@ -432,33 +432,42 @@ function openNeedModal(profile){
   $("#need-form",modal).addEventListener("submit",async e=>{e.preventDefault();try{await api(`/api/ngos/${encodeURIComponent(profile.id)}/need`,{method:"PATCH",body:JSON.stringify({need:$("#need-text",modal).value,service_area:$("#need-area",modal).value,capacity:Number($("#need-capacity",modal).value)})});modal.remove();toast("Requirement updated.");await refreshBootstrap();renderDashboard();}catch(error){toast(error.message,"error");}});
 }
 
+
 async function renderFoodTrust() {
   const view = $("#view-foodtrust");
   if (!view) return;
+
   let connection = {
     configured: false,
     message: "Checking TinyFish connection..."
   };
+
   try {
     connection = await api("/api/foodtrust/status");
   } catch (error) {
     connection.message = error.message;
   }
+
   const canAdmin = state.role === "Admin";
   const ownRestaurant = selectedProfile();
+
   view.innerHTML = `
     ${heading(
       "PUBLIC INFORMATION",
       "FoodTrust",
       "Browse restaurant details and public NGO information."
     )}
+
     <div class="trust-strip">
       <div>
         <h3>Python backend · TinyFish Search + Fetch</h3>
-        <p>${escapeHTML(connection.message)}
-        Research results may be incomplete. Open the linked sources
-        to verify the latest information.</p>
+        <p>
+          ${escapeHTML(connection.message)}
+          Research results may be incomplete. Open linked sources
+          to verify the latest information.
+        </p>
       </div>
+
       <span class="pill">
         ${connection.configured
           ? "Live research configured"
@@ -482,6 +491,7 @@ async function renderFoodTrust() {
       ownRestaurant?.id === restaurant.id
     );
 
+  // Restaurant review cards
   const restaurantCards = restaurants.map(restaurant => {
     const report = restaurantReports[restaurant.id];
 
@@ -499,7 +509,9 @@ async function renderFoodTrust() {
               data-research="restaurant"
               data-org-id="${escapeHTML(restaurant.id)}"
               type="button">
-              ${report ? "Refresh Google reviews" : "Search Google reviews"}
+              ${report
+                ? "Refresh Google reviews"
+                : "Search Google reviews"}
             </button>
           ` : ""}
         </div>
@@ -511,10 +523,13 @@ async function renderFoodTrust() {
     `;
   }).join("");
 
+  // NGO public information cards
   const ngoCards = ngos.map(ngo => {
     const report = ngoReports[ngo.id];
     const data = report?.evidence || report || {};
-    const sources = Array.isArray(data.sources) ? data.sources : [];
+    const sources = Array.isArray(data.sources)
+      ? data.sources
+      : [];
 
     const sourceList = sources.map(source => {
       const url = safeHttpUrl(source.url);
@@ -529,6 +544,7 @@ async function renderFoodTrust() {
                  target="_blank"
                  rel="noopener noreferrer">${title} ↗</a>`
             : title}
+
           ${source.snippet
             ? `<p>${escapeHTML(source.snippet)}</p>`
             : ""}
@@ -539,7 +555,10 @@ async function renderFoodTrust() {
     return `
       <article class="panel">
         <h3>${escapeHTML(ngo.name)}</h3>
-        <p>${escapeHTML(ngo.location || "Location not provided")}</p>
+
+        <p>
+          ${escapeHTML(ngo.location || "Location not provided")}
+        </p>
 
         ${canAdmin ? `
           <button
@@ -547,37 +566,52 @@ async function renderFoodTrust() {
             type="button"
             data-research-ngo
             data-ngo-id="${escapeHTML(ngo.id)}">
-            ${report ? "Refresh NGO research" : "Research NGO"}
+            ${report
+              ? "Refresh NGO research"
+              : "Research NGO"}
           </button>
         ` : ""}
 
         <p>
-          <strong>${escapeHTML(
-            report?.state || data.state || "No research saved yet"
-          )}</strong>
+          <strong>
+            ${escapeHTML(
+              report?.state ||
+              data.state ||
+              "No research saved yet"
+            )}
+          </strong>
         </p>
 
-        <p>${escapeHTML(
-          data.basic_info ||
-          data.note ||
-          "No public profile information found yet."
-        )}</p>
+        <p>
+          ${escapeHTML(
+            data.basic_info ||
+            data.note ||
+            "No public profile information found yet."
+          )}
+        </p>
 
-        ${sourceList ? `<h4>Sources</h4><ul>${sourceList}</ul>` : ""}
+        ${sourceList
+          ? `<h4>Sources</h4><ul>${sourceList}</ul>`
+          : ""}
       </article>
     `;
   }).join("");
 
+  // Render both sections
   content.innerHTML = `
     <section class="section">
       <div class="section-heading">
         <div>
           <h2>Restaurants · Google reviews</h2>
-          <p>Research returns available public review search excerpts.</p>
+          <p>
+            Research returns available public review search excerpts.
+          </p>
         </div>
       </div>
+
       <div class="directory-grid">
-        ${restaurantCards || '<div class="empty-state">No restaurants yet.</div>'}
+        ${restaurantCards ||
+          '<div class="empty-state">No restaurants yet.</div>'}
       </div>
     </section>
 
@@ -585,30 +619,44 @@ async function renderFoodTrust() {
       <div class="section-heading">
         <div>
           <h2>NGOs · Public profile research</h2>
-          <p>Research publicly available information about registered NGOs. NGO research is available to administrators.</p>
+          <p>
+            Research publicly available information about registered
+            NGOs. NGO research is available to administrators.
+          </p>
         </div>
       </div>
+
       <div class="directory-grid">
-        ${ngoCards || '<div class="empty-state">No NGO profiles yet.</div>'}
+        ${ngoCards ||
+          '<div class="empty-state">No NGO profiles yet.</div>'}
       </div>
     </section>
   `;
 
+  // Restaurant research button
   $$("[data-research]", content).forEach(button => {
     button.addEventListener("click", async () => {
       const orgId = button.dataset.orgId;
+
       button.disabled = true;
       button.textContent = "Searching...";
 
       try {
         const result = await api("/api/foodtrust", {
           method: "POST",
-          body: JSON.stringify({ restaurant_id: orgId })
+          body: JSON.stringify({
+            restaurant_id: orgId
+          })
         });
 
         await refreshBootstrap();
-        toast(result.state || "Restaurant research completed.", "info");
-        renderFoodTrust();
+
+        toast(
+          result.state || "Restaurant research completed.",
+          "info"
+        );
+
+        await renderFoodTrust();
       } catch (error) {
         button.disabled = false;
         button.textContent = "Try again";
@@ -617,21 +665,30 @@ async function renderFoodTrust() {
     });
   });
 
+  // NGO research button
   $$("[data-research-ngo]", content).forEach(button => {
     button.addEventListener("click", async () => {
       const ngoId = button.dataset.ngoId;
+
       button.disabled = true;
       button.textContent = "Researching...";
 
       try {
         const result = await api("/api/foodtrust/ngos", {
           method: "POST",
-          body: JSON.stringify({ ngo_id: ngoId })
+          body: JSON.stringify({
+            ngo_id: ngoId
+          })
         });
 
         await refreshBootstrap();
-        toast(result.state || "NGO research completed.", "info");
-        renderFoodTrust();
+
+        toast(
+          result.state || "NGO research completed.",
+          "info"
+        );
+
+        await renderFoodTrust();
       } catch (error) {
         button.disabled = false;
         button.textContent = "Try again";
@@ -641,69 +698,6 @@ async function renderFoodTrust() {
   });
 }
 
-  
-const ngos = state.data?.ngos || [];
-const ngoReports = state.data?.ngo_reports || {};
-
-const ngoCards = ngos.map(ngo => {
-  const report = ngoReports[ngo.id];
-  const data = report?.evidence || report || {};
-  const sources = Array.isArray(data.sources) ? data.sources : [];
-
-  const sourceList = sources.map(source => {
-    const url = safeHttpUrl(source.url);
-    const title = escapeHTML(
-      source.title || source.site_name || "Public source"
-    );
-
-    return `<li>
-      ${url
-        ? `<a href="${escapeHTML(url)}" target="_blank"
-             rel="noopener noreferrer">${title}</a>`
-        : title}
-      <p>${escapeHTML(source.snippet || "")}</p>
-    </li>`;
-  }).join("");
-
-  const researchButton = canAdmin
-    ? `<button type="button"
-         data-research-ngo
-         data-ngo-id="${escapeHTML(ngo.id)}">
-         ${report ? "Refresh NGO research" : "Research NGO"}
-       </button>`
-    : "";
-
-  return `<article>
-    <h3>${escapeHTML(ngo.name)}</h3>
-    <p>${escapeHTML(ngo.location || "")}</p>
-    ${researchButton}
-    <p><strong>${escapeHTML(
-      report?.state || data.state || "No research saved yet"
-    )}</strong></p>
-    <p>${escapeHTML(
-      data.basic_info || data.note || "No public profile information found yet."
-    )}</p>
-    ${sourceList ? `<h4>Sources</h4><ul>${sourceList}</ul>` : ""}
-  </article>`;
-}).join("");
-  const canAdmin=state.role==="Admin", ownRestaurant=selectedProfile();
-  const canResearchRestaurant=restaurant=>canAdmin||(state.role==="Restaurant"&&ownRestaurant?.id===restaurant.id);
-  const restaurantCards=restaurants.map(restaurant=>{const report=state.data?.reports?.[restaurant.id];return `<article class="panel"><div class="trust-org-head"><div><h2>${escapeHTML(restaurant.name)}</h2><p>${escapeHTML(restaurant.location)}</p></div>${canResearchRestaurant(restaurant)?`<button class="button button-secondary" data-research="restaurant" data-org-id="${escapeHTML(restaurant.id)}">${report?"Refresh Google reviews":"Search Google reviews"}</button>`:""}</div>${report?trustReport(report,restaurant.name):'<p class="field-hint">No Google review search saved yet.</p>'}</article>`;}).join("")||'<div class="empty-state">No restaurants yet.</div>';
-  content.innerHTML=`<section class="section"><div class="section-heading"><div><h2>Restaurants · Google reviews</h2><p>Research returns up to three Google Maps search excerpts.</p></div></div><div class="directory-grid">${restaurantCards}</div></section>`;
-  $$('[data-research]',content).forEach(button=>button.addEventListener("click",async()=>{
-    const orgId=button.dataset.orgId;button.disabled=true;button.textContent="Searching…";
-    try{
-      const result=await api("/api/foodtrust",{method:"POST",body:JSON.stringify({restaurant_id:orgId})});
-      await refreshBootstrap();toast(result.state,"info");renderFoodTrust();
-    }catch(error){button.disabled=false;button.textContent="Try again";toast(error.message,"error");}
-    <h2>NGOs · Public profile research</h2>
-    <p>
-         Research public information about registered NGOs.
-         NGO research can be run by an administrator.
-    </p>
-    ${ngoCards || "<p>No NGO profiles yet.</p>"}
-  }));
-}
 function renderProfiles() {
   const view=$("#view-profiles");
   view.innerHTML=`${heading("JOIN THE NETWORK","Register your organisation","First choose what you wish to register as. An admin reviews applications before donation actions are enabled.")}<div class="form-shell"><div id="register-choice" class="directory-grid"><button class="form-card register-choice" data-register-role="restaurant"><span class="form-step">I represent a</span><h2>Restaurant / food donor</h2><p class="field-hint">Share surplus food and manage incoming requests.</p><span class="button button-secondary">Continue as restaurant →</span></button><button class="form-card register-choice" data-register-role="ngo"><span class="form-step">I represent an</span><h2>NGO / community kitchen</h2><p class="field-hint">Publish your requirements and request donations.</p><span class="button button-secondary">Continue as NGO →</span></button></div><div id="register-form-holder"></div><div class="notice">Registrations remain pending until an administrator reviews them. Approval grants platform access; it is not an independent legal or food-safety certification.</div><p class="field-hint">Already registered? <button class="text-link" data-page="login">Log in</button></p></div>`;
