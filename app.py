@@ -129,6 +129,38 @@ def distance_km(location_a, location_b):
         1,
     )
 
+def add_ngo_distances(items):
+    user = db.get_user(session.get("user_id", "")) if session.get("user_id") else None
+
+    # Only calculate distances for the logged-in NGO
+    if not user or user.get("role") != "ngo":
+        return items
+
+    ngo = db.one(
+        "SELECT location FROM ngos WHERE id=?",
+        (user["profile_id"],)
+    )
+
+    ngo_location = (ngo or {}).get("location")
+
+    for item in items:
+        pickup_location = (
+            item.get("location")
+            or item.get("restaurant_location")
+        )
+
+        km = distance_km(ngo_location, pickup_location)
+
+        item["distance_km"] = km
+        item["distance_label"] = (
+            f"{km:.1f} km away"
+            if km is not None
+            else "Distance unavailable"
+        )
+
+    return items
+
+
 def api_error(message, status=400):
 
     return jsonify({"error": str(message)}), status
