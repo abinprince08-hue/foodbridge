@@ -54,6 +54,80 @@ app.config.update(
 
 db.init_db()
 
+import math
+import os
+import time
+import requests
+
+from functools import lru_cache
+
+
+GEOCODING_USER_AGENT = "FoodBridge/1.0 (food donation platform)"
+
+
+@lru_cache(maxsize=500)
+def geocode_location(address):
+    """
+    Convert a registered address into latitude and longitude.
+    Cached so repeated requests do not repeatedly geocode addresses.
+    """
+    if not address or not str(address).strip():
+        return None
+
+    try:
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={
+                "q": str(address).strip(),
+                "format": "jsonv2",
+                "limit": 1,
+                "countrycodes": "in",
+            },
+            headers={"User-Agent": GEOCODING_USER_AGENT},
+            timeout=5,
+        )
+        response.raise_for_status()
+        results = response.json()
+
+        if not results:
+            return None
+
+        return (
+            float(results[0]["lat"]),
+            float(results[0]["lon"]),
+        )
+
+    except (requests.RequestException, ValueError, KeyError, IndexError):
+        return None
+
+
+def distance_km(location_a, location_b):
+    """Return straight-line distance in kilometres, or None."""
+    coords_a = geocode_location(location_a)
+    coords_b = geocode_location(location_b)
+
+    if not coords_a or not coords_b:
+        return None
+
+    lat1, lon1 = map(math.radians, coords_a)
+    lat2, lon2 = map(math.radians, coords_b)
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    haversine = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1)
+        * math.cos(lat2)
+        * math.sin(dlon / 2) ** 2
+    )
+
+    haversine = min(1.0, max(0.0, haversine))
+
+    return round(
+        6371 * 2 * math.asin(math.sqrt(haversine)),
+        1,
+    )
 
 def api_error(message, status=400):
 
