@@ -492,6 +492,12 @@ const ngoCards = ngos.map(ngo => {
       const result=await api("/api/foodtrust",{method:"POST",body:JSON.stringify({restaurant_id:orgId})});
       await refreshBootstrap();toast(result.state,"info");renderFoodTrust();
     }catch(error){button.disabled=false;button.textContent="Try again";toast(error.message,"error");}
+    <h2>NGOs · Public profile research</h2>
+    <p>
+         Research public information about registered NGOs.
+         NGO research can be run by an administrator.
+    </p>
+    ${ngoCards || "<p>No NGO profiles yet.</p>"}
   }));
 }
 function renderProfiles() {
