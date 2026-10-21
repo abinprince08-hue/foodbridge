@@ -435,28 +435,23 @@ function openNeedModal(profile){
 async function renderFoodTrust() {
   const view = $("#view-foodtrust");
   if (!view) return;
-
   let connection = {
     configured: false,
     message: "Checking TinyFish connection..."
   };
-
   try {
     connection = await api("/api/foodtrust/status");
   } catch (error) {
     connection.message = error.message;
   }
-
   const canAdmin = state.role === "Admin";
   const ownRestaurant = selectedProfile();
-
   view.innerHTML = `
     ${heading(
       "PUBLIC INFORMATION",
       "FoodTrust",
       "Browse restaurant details and public NGO information."
     )}
-
     <div class="trust-strip">
       <div>
         <h3>Python backend · TinyFish Search + Fetch</h3>
