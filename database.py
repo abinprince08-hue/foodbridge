@@ -510,3 +510,29 @@ def save_ngo_report(ngo_id, website, state, evidence):
 
 def latest_ngo_report(ngo_id):
     return _latest("ngo_id", ngo_id)
+
+def _init_mysql_schema():
+    schema = [
+        # Your existing CREATE TABLE statements stay here...
+
+        """CREATE TABLE IF NOT EXISTS restaurant_reviews (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            restaurant_id VARCHAR(100) NOT NULL,
+            ngo_id VARCHAR(100) NOT NULL,
+            rating INT NOT NULL,
+            review TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ON UPDATE CURRENT_TIMESTAMP,
+            CONSTRAINT chk_restaurant_rating
+                CHECK (rating BETWEEN 1 AND 5),
+            UNIQUE KEY unique_restaurant_ngo (restaurant_id, ngo_id),
+            FOREIGN KEY (restaurant_id)
+                REFERENCES restaurants(id) ON DELETE CASCADE,
+            FOREIGN KEY (ngo_id)
+                REFERENCES ngos(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
+        """,
+
+        # Keep any remaining existing statements here...
+    ]
