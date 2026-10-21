@@ -310,8 +310,11 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
             name = ""
     if not name:
         return _failure("restaurant", "Research unavailable", "A restaurant name is needed to search for reviews.")
+     place = f" {location.strip()}" if location and location.strip() else ""
 
-    queries = [f'site:google.com "{name}" reviews rating']
+     queries = [f'site:google.com/maps/place "{name}" customer reviews{place}',f'site:google.com/maps "{name}" ratings reviews{place}',f'"{name}" Google Maps customer reviews{place}',]
+
+ 
     if location and location.strip():
         queries.append(f'site:google.com "{name}" {location.strip()}')
     tasks = {f"q{i}": (lambda q=q: _search(q, api_key)) for i, q in enumerate(queries)}
@@ -329,8 +332,8 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
             candidate = str(item.get("url") or "")
             parsed = urlparse(candidate)
             host = (parsed.hostname or "").lower()
-            if host not in {"google.com", "www.google.com", "maps.google.com"} or "/maps" not in parsed.path:
-                continue
+           if (host not in {"google.com", "www.google.com", "maps.google.com","google.co.in", "www.google.co.in", "maps.google.co.in"} or "/maps" not in parsed.path.lower()):
+                    continue
             haystack = f"{item.get('title') or ''} {item.get('snippet') or ''} {unquote_plus(candidate)}"
             if candidate in seen or not _mentions(haystack, tokens):
                 continue
@@ -340,9 +343,9 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
     featured, sources, rating = [], [], None
     for item in matches[:3]:
         candidate = str(item.get("url"))
-        snippet = _clean(item.get("snippet"))
+        snippet = _clean(item.get("snippet") or item.get("description")  or item.get("text") or item.get("content"))
         title = _clean(item.get("title")) or "Google Maps result"
-        sources.append({"url": candidate, "title": title, "site_name": "Google Maps",
+        sources.append({"url": candidate, "title": title, "site_name": "Google",
                         "retrieved_at": _now_iso(), "source_type": "Google Search result", "snippet": snippet})
         if snippet:
             featured.append({"excerpt": snippet[:420], "title": title, "url": candidate})
