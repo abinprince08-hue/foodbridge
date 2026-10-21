@@ -346,6 +346,8 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
 
     tokens = _tokens(name)
     seen, maps_matches, web_matches = set(), [], []
+    dropped = {"name_mismatch": 0, "not_review_like": 0}
+    dropped_samples = []
     for batch in results.values():
         for item in batch:
             candidate = str(item.get("url") or "").strip()
@@ -354,6 +356,9 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
             title = _clean(item.get("title"))
             snippet = _clean(item.get("snippet") or item.get("description") or item.get("text") or item.get("content"))
             if not _mentions(f"{title} {snippet} {unquote_plus(candidate)}", tokens):
+                dropped["name_mismatch"] += 1
+                if len(dropped_samples) < 4:
+                    dropped_samples.append(f"{title[:60]} | {candidate[:90]}")
                 continue
             seen.add(candidate)
             entry = {"url": candidate, "title": title or "Search result", "snippet": snippet}
@@ -361,6 +366,8 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
                 maps_matches.append(entry)
             elif snippet and _REVIEW_WORDS.search(f"{title} {snippet}"):
                 web_matches.append(entry)
+            else:
+                dropped["not_review_like"] += 1
 
     maps_have_text = any(m["snippet"] for m in maps_matches)
     chosen = [(m, True) for m in maps_matches[:3]]
@@ -401,7 +408,9 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
     return {"kind": "restaurant", "state": state, "source_kind": kind, "observations": [],
             "featured_reviews": featured, "sources": sources, "basic_info": "", "awards": [], "work": [],
             "rating": rating, "query": queries[0], "note": note,
-            "diagnostics": {"returned": {q: len(r) for q, r in results.items()}, "failed": len(errors)}}
+            "diagnostics": {"returned": {q: len(r) for q, r in results.items()}, "failed": len(errors),
+                            "dropped": dropped, "dropped_samples": dropped_samples,
+                            "maps_matches": len(maps_matches), "web_matches": len(web_matches)}}
 
 
 def diagnose_restaurant(name: str, location: str = "") -> dict:
