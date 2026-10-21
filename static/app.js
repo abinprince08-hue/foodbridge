@@ -178,7 +178,7 @@ function donationCard(item) {
     <div class="food-thumb">${photo}</div>
     <div class="listing-content">
       <h3 class="listing-title">${escapeHTML(item.title || "Food donation")}</h3>
-      <p class="listing-meta">${escapeHTML(item.restaurant_name || "Restaurant not listed")} · ${escapeHTML(item.location || "Location not provided")}<br>${escapeHTML(item.quantity ?? "—")} ${escapeHTML(item.unit || "units")} · ${escapeHTML(item.category || "Uncategorised")}<br><span class="pickup-label">Pickup by</span> ${escapeHTML(fmtTime(item.deadline))}</p>
+      <p class="listing-meta">${escapeHTML(item.restaurant_name || "Restaurant not listed")}${restaurantRatingHTML(item.restaurant_id)} · ${escapeHTML(item.location || "Location not provided")}<br>${escapeHTML(item.quantity ?? "—")} ${escapeHTML(item.unit || "units")} · ${escapeHTML(item.category || "Uncategorised")}<br><span class="pickup-label">Pickup by</span> ${escapeHTML(fmtTime(item.deadline))}</p>
       <div class="listing-tags">${statusBadge(item.status)}${trust}${deadlineTag}</div>
       <div class="card-footer"><span class="reference">${escapeHTML(item.ref || "No reference")}</span><button class="small-link text-link" data-detail="${escapeHTML(item.id)}" aria-label="View details for ${escapeHTML(item.title || "this donation")}">View details <span aria-hidden="true">→</span></button></div>
     </div>
