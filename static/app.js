@@ -431,12 +431,221 @@ function openNeedModal(profile){
   $("#need-text", modal)?.focus();
   $("#need-form",modal).addEventListener("submit",async e=>{e.preventDefault();try{await api(`/api/ngos/${encodeURIComponent(profile.id)}/need`,{method:"PATCH",body:JSON.stringify({need:$("#need-text",modal).value,service_area:$("#need-area",modal).value,capacity:Number($("#need-capacity",modal).value)})});modal.remove();toast("Requirement updated.");await refreshBootstrap();renderDashboard();}catch(error){toast(error.message,"error");}});
 }
+
 async function renderFoodTrust() {
-  const view=$("#view-foodtrust");
-  let connection={configured:false,message:"Checking TinyFish connection…"};try{connection=await api("/api/foodtrust/status");}catch{}
-  view.innerHTML=`${heading("PUBLIC INFORMATION","FoodTrust","Browse restaurant details and Google review search results.")}<div class="trust-strip"><div><h3>Python backend · TinyFish Search + Fetch</h3><p>${escapeHTML(connection.message)} Review excerpts can be incomplete; open Google Maps for the current reviews.</p></div><span class="pill">${connection.configured?"Live research configured":"API key not configured"}</span></div><div id="foodtrust-content" class="section"></div>`;
-  const content=$("#foodtrust-content");
-  const restaurants=state.data?.restaurants||[];
+  const view = $("#view-foodtrust");
+  if (!view) return;
+
+  let connection = {
+    configured: false,
+    message: "Checking TinyFish connection..."
+  };
+
+  try {
+    connection = await api("/api/foodtrust/status");
+  } catch (error) {
+    connection.message = error.message;
+  }
+
+  const canAdmin = state.role === "Admin";
+  const ownRestaurant = selectedProfile();
+
+  view.innerHTML = `
+    ${heading(
+      "PUBLIC INFORMATION",
+      "FoodTrust",
+      "Browse restaurant details and public NGO information."
+    )}
+
+    <div class="trust-strip">
+      <div>
+        <h3>Python backend · TinyFish Search + Fetch</h3>
+        <p>${escapeHTML(connection.message)}
+        Research results may be incomplete. Open the linked sources
+        to verify the latest information.</p>
+      </div>
+      <span class="pill">
+        ${connection.configured
+          ? "Live research configured"
+          : "API key not configured"}
+      </span>
+    </div>
+
+    <div id="foodtrust-content" class="section"></div>
+  `;
+
+  const content = $("#foodtrust-content");
+  const restaurants = state.data?.restaurants || [];
+  const ngos = state.data?.ngos || [];
+  const ngoReports = state.data?.ngo_reports || {};
+  const restaurantReports = state.data?.reports || {};
+
+  const canResearchRestaurant = restaurant =>
+    canAdmin ||
+    (
+      state.role === "Restaurant" &&
+      ownRestaurant?.id === restaurant.id
+    );
+
+  const restaurantCards = restaurants.map(restaurant => {
+    const report = restaurantReports[restaurant.id];
+
+    return `
+      <article class="panel">
+        <div class="trust-org-head">
+          <div>
+            <h2>${escapeHTML(restaurant.name)}</h2>
+            <p>${escapeHTML(restaurant.location || "")}</p>
+          </div>
+
+          ${canResearchRestaurant(restaurant) ? `
+            <button
+              class="button button-secondary"
+              data-research="restaurant"
+              data-org-id="${escapeHTML(restaurant.id)}"
+              type="button">
+              ${report ? "Refresh Google reviews" : "Search Google reviews"}
+            </button>
+          ` : ""}
+        </div>
+
+        ${report
+          ? trustReport(report, restaurant.name)
+          : '<p class="field-hint">No Google review search saved yet.</p>'}
+      </article>
+    `;
+  }).join("");
+
+  const ngoCards = ngos.map(ngo => {
+    const report = ngoReports[ngo.id];
+    const data = report?.evidence || report || {};
+    const sources = Array.isArray(data.sources) ? data.sources : [];
+
+    const sourceList = sources.map(source => {
+      const url = safeHttpUrl(source.url);
+      const title = escapeHTML(
+        source.title || source.site_name || "Public source"
+      );
+
+      return `
+        <li>
+          ${url
+            ? `<a href="${escapeHTML(url)}"
+                 target="_blank"
+                 rel="noopener noreferrer">${title} ↗</a>`
+            : title}
+          ${source.snippet
+            ? `<p>${escapeHTML(source.snippet)}</p>`
+            : ""}
+        </li>
+      `;
+    }).join("");
+
+    return `
+      <article class="panel">
+        <h3>${escapeHTML(ngo.name)}</h3>
+        <p>${escapeHTML(ngo.location || "Location not provided")}</p>
+
+        ${canAdmin ? `
+          <button
+            class="button button-secondary"
+            type="button"
+            data-research-ngo
+            data-ngo-id="${escapeHTML(ngo.id)}">
+            ${report ? "Refresh NGO research" : "Research NGO"}
+          </button>
+        ` : ""}
+
+        <p>
+          <strong>${escapeHTML(
+            report?.state || data.state || "No research saved yet"
+          )}</strong>
+        </p>
+
+        <p>${escapeHTML(
+          data.basic_info ||
+          data.note ||
+          "No public profile information found yet."
+        )}</p>
+
+        ${sourceList ? `<h4>Sources</h4><ul>${sourceList}</ul>` : ""}
+      </article>
+    `;
+  }).join("");
+
+  content.innerHTML = `
+    <section class="section">
+      <div class="section-heading">
+        <div>
+          <h2>Restaurants · Google reviews</h2>
+          <p>Research returns available public review search excerpts.</p>
+        </div>
+      </div>
+      <div class="directory-grid">
+        ${restaurantCards || '<div class="empty-state">No restaurants yet.</div>'}
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading">
+        <div>
+          <h2>NGOs · Public profile research</h2>
+          <p>Research publicly available information about registered NGOs. NGO research is available to administrators.</p>
+        </div>
+      </div>
+      <div class="directory-grid">
+        ${ngoCards || '<div class="empty-state">No NGO profiles yet.</div>'}
+      </div>
+    </section>
+  `;
+
+  $$("[data-research]", content).forEach(button => {
+    button.addEventListener("click", async () => {
+      const orgId = button.dataset.orgId;
+      button.disabled = true;
+      button.textContent = "Searching...";
+
+      try {
+        const result = await api("/api/foodtrust", {
+          method: "POST",
+          body: JSON.stringify({ restaurant_id: orgId })
+        });
+
+        await refreshBootstrap();
+        toast(result.state || "Restaurant research completed.", "info");
+        renderFoodTrust();
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Try again";
+        toast(error.message, "error");
+      }
+    });
+  });
+
+  $$("[data-research-ngo]", content).forEach(button => {
+    button.addEventListener("click", async () => {
+      const ngoId = button.dataset.ngoId;
+      button.disabled = true;
+      button.textContent = "Researching...";
+
+      try {
+        const result = await api("/api/foodtrust/ngos", {
+          method: "POST",
+          body: JSON.stringify({ ngo_id: ngoId })
+        });
+
+        await refreshBootstrap();
+        toast(result.state || "NGO research completed.", "info");
+        renderFoodTrust();
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Try again";
+        toast(error.message, "error");
+      }
+    });
+  });
+}
+
   
 const ngos = state.data?.ngos || [];
 const ngoReports = state.data?.ngo_reports || {};
