@@ -714,28 +714,57 @@ async function renderFoodTrust() {
   const ownRestaurant = selectedProfile();
   const restaurants = state.data?.restaurants || [];
   const reports = state.data?.reports || {};
+  const canSubmitNgoReview =
+    state.role === "NGO" &&
+    state.auth?.status === "approved";
+
+  // Fetch NGO reviews for every restaurant.
+  const reviewResults = await Promise.all(
+    restaurants.map(async restaurant => {
+      try {
+        return [
+          restaurant.id,
+          await api(
+            `/api/foodtrust/restaurant-reviews/${encodeURIComponent(
+              restaurant.id
+            )}`
+          )
+        ];
+      } catch (error) {
+        return [
+          restaurant.id,
+          { loadError: error.message, reviews: [] }
+        ];
+      }
+    })
+  );
+
+  const reviewsByRestaurant =
+    Object.fromEntries(reviewResults);
 
   view.innerHTML = `
     ${heading(
       "PUBLIC INFORMATION",
       "FoodTrust",
-      "Browse restaurant review research and its public sources."
+      "Read community feedback from NGOs, then compare it with public Google review search results and their sources."
     )}
 
     <div class="trust-strip">
       <div>
-        <h3>Python backend · TinyFish Search + Fetch</h3>
+        <h3>Community reviews + public research</h3>
         <p>
-          ${escapeHTML(connection.message)}
-          Research results may be incomplete. Open linked sources
-          to verify the information.
+          NGO reviews are submitted by eligible organisations.
+          Google review excerpts are separately retrieved by TinyFish
+          and may be incomplete.
         </p>
       </div>
 
       <span class="pill">
-        ${connection.configured
-          ? "Live research configured"
-          : "API key not configured"}
+        ${
+          connection.configured
+            ? "Live research configured"
+            : "API key not configured"
+        }
       </span>
     </div>
 
@@ -754,30 +783,217 @@ async function renderFoodTrust() {
   const restaurantCards = restaurants.map(restaurant => {
     const report = reports[restaurant.id];
 
+    const reviewData =
+      reviewsByRestaurant[restaurant.id] || { reviews: [] };
+
+    const reviews = Array.isArray(reviewData.reviews)
+      ? reviewData.reviews
+      : [];
+
+    const average = reviewData.average_rating == null
+      ? null
+      : Number(reviewData.average_rating).toFixed(1);
+
+    const roundedRating = average === null
+      ? 0
+      : Math.round(Number(average));
+
+    const stars =
+      "★".repeat(roundedRating) +
+      "☆".repeat(5 - roundedRating);
+
+    // Display reviews written by NGOs.
+    const reviewList = reviews.length
+      ? reviews.map(item => {
+          const rating = Math.max(
+            0,
+            Math.min(5, Number(item.rating) || 0)
+          );
+
+          return `
+            <blockquote class="review-quote">
+              <p>
+                <span class="rating-stars">
+                  ${"★".repeat(rating)}${"☆".repeat(5 - rating)}
+                </span>
+              </p>
+
+              <p>
+                ${escapeHTML(
+                  item.review || "No written comment provided."
+                )}
+              </p>
+
+              <small>
+                ${escapeHTML(item.ngo_name || "NGO")}
+                ${
+                  item.created_at
+                    ? ` · ${escapeHTML(fmtTime(item.created_at))}`
+                    : ""
+                }
+              </small>
+            </blockquote>
+          `;
+        }).join("")
+      : `
+          <p class="field-hint">
+            No NGO reviews yet. Be the first eligible organisation
+            to share feedback.
+          </p>
+        `;
+
+    // Show the review form only to approved NGOs.
+    const reviewForm = canSubmitNgoReview
+      ? `
+          <form
+            class="form-card ngo-review-form"
+            data-review-form
+            data-org-id="${escapeHTML(restaurant.id)}"
+          >
+            <h3>Write an NGO review</h3>
+
+            <p class="field-hint">
+              You can review this restaurant after it has accepted
+              one of your donation requests.
+            </p>
+
+            <div class="field">
+              <label for="rating-${escapeHTML(restaurant.id)}">
+                Your rating
+              </label>
+
+              <select
+                id="rating-${escapeHTML(restaurant.id)}"
+                name="rating"
+                required
+              >
+                <option value="">Choose stars</option>
+                <option value="5">5 — Excellent</option>
+                <option value="4">4 — Good</option>
+                <option value="3">3 — Average</option>
+                <option value="2">2 — Poor</option>
+                <option value="1">1 — Very poor</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="review-${escapeHTML(restaurant.id)}">
+                Written feedback (optional)
+              </label>
+
+              <textarea
+                id="review-${escapeHTML(restaurant.id)}"
+                name="review"
+                maxlength="2000"
+                rows="3"
+                placeholder="Share your experience working with this restaurant..."
+              ></textarea>
+            </div>
+
+            <button class="button button-primary" type="submit">
+              Submit NGO review
+            </button>
+          </form>
+        `
+      : state.role === "NGO"
+        ? `
+            <div class="notice warning">
+              Your NGO account must be approved before you can
+              submit a review.
+            </div>
+          `
+        : `
+            <p class="field-hint">
+              Only approved NGOs with an accepted request can
+              submit a review.
+            </p>
+          `;
+
     return `
       <article class="panel">
         <div class="trust-org-head">
           <div>
             <h2>${escapeHTML(restaurant.name)}</h2>
+
             <p>${escapeHTML(restaurant.location || "")}</p>
+
+            <p class="restaurant-rating">
+              <span class="rating-stars">${stars}</span>
+
+              ${
+                average === null
+                  ? "No NGO ratings yet"
+                  : `${average} (${
+                      reviewData.review_count || reviews.length
+                    } review${
+                      (reviewData.review_count || reviews.length) === 1
+                        ? ""
+                        : "s"
+                    })`
+              }
+            </p>
           </div>
 
-          ${canResearchRestaurant(restaurant) ? `
-            <button
-              class="button button-secondary"
-              data-research="restaurant"
-              data-org-id="${escapeHTML(restaurant.id)}"
-              type="button">
-              ${report
-                ? "Refresh Google reviews"
-                : "Search Google reviews"}
-            </button>
-          ` : ""}
+          ${
+            canResearchRestaurant(restaurant)
+              ? `
+                <button
+                  class="button button-secondary"
+                  data-research="restaurant"
+                  data-org-id="${escapeHTML(restaurant.id)}"
+                  type="button"
+                >
+                  ${
+                    report
+                      ? "Refresh Google reviews"
+                      : "Search Google reviews"
+                  }
+                </button>
+              `
+              : ""
+          }
         </div>
 
-        ${report
-          ? trustReport(report, restaurant.name)
-          : '<p class="field-hint">No review research saved yet.</p>'}
+        <!-- NGO reviews appear BEFORE Google review results. -->
+        <section class="section ngo-review-section">
+          <div class="section-heading">
+            <div>
+              <h3>NGO reviews</h3>
+              <p>
+                Feedback submitted by FoodBridge NGOs after an
+                accepted donation request.
+              </p>
+            </div>
+          </div>
+
+          ${
+            reviewData.loadError
+              ? `
+                <div class="notice warning">
+                  Could not load NGO reviews:
+                  ${escapeHTML(reviewData.loadError)}
+                </div>
+              `
+              : reviewList
+          }
+
+          ${reviewForm}
+        </section>
+
+        <!-- Existing Google/TinyFish results stay underneath. -->
+        <section class="section google-review-section">
+          <h3>Google review search results</h3>
+
+          ${
+            report
+              ? trustReport(report, restaurant.name)
+              : `
+                <p class="field-hint">
+                  No Google review search saved yet.
+                </p>
+              `
+          }
+        </section>
       </article>
     `;
   }).join("");
@@ -786,18 +1002,67 @@ async function renderFoodTrust() {
     <section class="section">
       <div class="section-heading">
         <div>
-          <h2>Restaurants · Public reviews</h2>
-          <p>Review available public search excerpts and sources.</p>
+          <h2>Restaurant reputation</h2>
+          <p>
+            NGO-submitted reviews appear first; Google review
+            search results are shown underneath.
+          </p>
         </div>
       </div>
 
       <div class="directory-grid">
-        ${restaurantCards ||
-          '<div class="empty-state">No restaurants yet.</div>'}
+        ${
+          restaurantCards ||
+          '<div class="empty-state">No restaurants yet.</div>'
+        }
       </div>
     </section>
   `;
 
+  // Handle NGO review submission.
+  $$("[data-review-form]", content).forEach(form => {
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const submitButton =
+        form.querySelector('button[type="submit"]');
+
+      const restaurantId = form.dataset.orgId;
+
+      try {
+        submitButton.disabled = true;
+        submitButton.textContent = "Saving review…";
+
+        await api(
+          `/api/foodtrust/restaurant-reviews/${encodeURIComponent(
+            restaurantId
+          )}`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              rating: form.elements.rating.value,
+              review: form.elements.review.value.trim()
+            })
+          }
+        );
+
+        toast("Your NGO review has been saved.");
+
+        await refreshBootstrap();
+        await renderFoodTrust();
+      } catch (error) {
+        toast(
+          error.message || "Could not save your review.",
+          "error"
+        );
+
+        submitButton.disabled = false;
+        submitButton.textContent = "Submit NGO review";
+      }
+    });
+  });
+
+  // Keep the existing Google/TinyFish research functionality.
   $$("[data-research]", content).forEach(button => {
     button.addEventListener("click", async () => {
       const restaurantId = button.dataset.orgId;
@@ -824,7 +1089,11 @@ async function renderFoodTrust() {
       } catch (error) {
         button.disabled = false;
         button.textContent = "Try again";
-        toast(error.message || "Restaurant research failed.", "error");
+
+        toast(
+          error.message || "Restaurant research failed.",
+          "error"
+        );
       }
     });
   });
