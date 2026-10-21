@@ -301,7 +301,38 @@
     font-size: 15px;
   }
 }
-```
+```css
+/* Fix search icon alignment */
+#view-explore .search-wrap {
+  position: relative;
+}
+
+#view-explore .search-wrap input {
+  padding-left: 42px;
+}
+
+#view-explore .search-wrap > svg {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  pointer-events: none;
+}
+
+/* If the icon uses an icon element instead of SVG */
+#view-explore .search-wrap > .icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  line-height: 1;
+  pointer-events: none;
+}
+
 
 /* FOODBRIDGE CHAT CSS: END */
 /* Keep your existing CSS above these markers */
