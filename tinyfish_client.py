@@ -311,9 +311,9 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
     if not name:
         return _failure("restaurant", "Research unavailable", "A restaurant name is needed to search for reviews.")
 
-    queries = [f'site:google.com/maps/place "{name}" reviews rating']
+    queries = [f'site:google.com "{name}" reviews rating']
     if location and location.strip():
-        queries.append(f'site:google.com/maps/place "{name}" {location.strip()}')
+        queries.append(f'site:google.com "{name}" {location.strip()}')
     tasks = {f"q{i}": (lambda q=q: _search(q, api_key)) for i, q in enumerate(queries)}
     results, errors, timed_out = _run_parallel(tasks)
 
