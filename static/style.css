@@ -359,6 +359,70 @@
   display: flex;
   align-items: center;
 }
+```css
+/* FIX: Explore Donations search layout */
+
+/* Keep label above the input */
+#view-explore .toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 2fr)
+    repeat(3, minmax(150px, 0.9fr));
+  gap: 12px;
+  align-items: end;
+}
+
+/* Stop the search label from wrapping */
+#view-explore .toolbar label {
+  white-space: nowrap;
+}
+
+/* Position the search icon inside the input */
+#view-explore .search-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+/* Center the icon vertically */
+#view-explore .search-wrap svg {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Leave enough room for the icon */
+#view-explore .search-wrap input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: 40px !important;
+}
+
+/* Responsive layout */
+@media (max-width: 900px) {
+  #view-explore .toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #view-explore .toolbar > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 580px) {
+  #view-explore .toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #view-explore .toolbar > :first-child {
+    grid-column: auto;
+  }
+}
 ```
 
 /* FOODBRIDGE CHAT CSS: END */
