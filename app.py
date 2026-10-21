@@ -431,8 +431,8 @@ def bootstrap():
       FROM donations""") or {}
 
     organisations = db.one("SELECT (SELECT COUNT(*) FROM restaurants)+(SELECT COUNT(*) FROM ngos) AS total")
-
     latest = enriched_donations("ORDER BY d.created_at DESC LIMIT 4")
+    latest = add_ngo_distances(latest)
 
     return jsonify({
 
