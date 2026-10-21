@@ -376,15 +376,7 @@ def auth_register():
 
 
 
-base = """SELECT d.*, r.name restaurant_name,
-    r.location restaurant_location,
-    r.website restaurant_website,
-    CASE WHEN EXISTS(
-        SELECT 1 FROM foodtrust_reports f
-        WHERE f.restaurant_id=r.id
-    ) THEN 1 ELSE 0 END trust_available
-    FROM donations d
-    JOIN restaurants r ON r.id=d.restaurant_id """
+base = """SELECT d.*, r.name restaurant_name, r.location restaurant_location, r.website restaurant_website, CASE WHEN EXISTS(SELECT 1 FROM foodtrust_reports f  WHERE f.restaurant_id=r.id) THEN 1 ELSE 0 END trust_available FROM donations d JOIN restaurants r ON r.id=d.restaurant_id """
 
     return db.rows(base + sql, params)
 
