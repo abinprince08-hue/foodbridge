@@ -175,6 +175,11 @@ function donationCard(item) {
       ? '<span class="pill pill-warning">Pickup soon</span>'
       : "";
   return `<article class="listing-card">
+    ${state.role === "NGO" ? `
+      <span class="distance-badge">
+        📍 ${escapeHTML(item.distance_label || "Distance unavailable")}
+      </span>
+    ` : ""}
     <div class="food-thumb">${photo}</div>
     <div class="listing-content">
       <h3 class="listing-title">${escapeHTML(item.title || "Food donation")}</h3>
