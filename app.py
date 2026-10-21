@@ -13,6 +13,8 @@ from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, session, render_template
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
+import time
+from datetime import timedata
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
@@ -123,7 +125,20 @@ def auth_me():
 
     return jsonify({"user": public_user(user)})
 
+_ngo_attempts = {}
 
+def _recent(report, hours=24):
+    try:
+        return bool(report) and datetime.now() - datetime.fromisoformat(report["created_at"]) < timedelta(hours=hours)
+    except Exception:
+        return False
+
+def _may_research(key, cooldown=600):
+    now = time.time()
+    if now - _ngo_attempts.get(key, 0) < cooldown:
+        return False
+    _ngo_attempts[key] = now
+    return True
 
 
 
@@ -933,27 +948,29 @@ def foodtrust():
 @require_roles("admin")
 
 def foodtrust_ngo():
+website = str(data.get("website") or restaurant["website"] or "").strip()
+if website:
+    try: website = validate_public_url(website)
+    except ValueError as exc: return api_error(exc)
+cached = db.latest_report(restaurant["id"])
+if _recent(cached) and not data.get("refresh"):
+    return jsonify({**cached["evidence"], "cached": True})
+report = research_restaurant(website, restaurant["name"], restaurant["location"] or "")
+if not db.save_report(restaurant["id"], website, report["state"], report) and cached:
+    return jsonify({**cached["evidence"], "cached": True, "stale": True, "live_error": report["note"]})
+return jsonify(report)
 
-    data = body_json()
-
-    ngo = db.one("SELECT * FROM ngos WHERE id=?", (data.get("ngo_id"),))
-
-    if not ngo: return api_error("NGO profile not found.", 404)
-
-    website = str(data.get("website") or ngo["website"] or "").strip()
-
-    if website:
-
-        try: website = validate_public_url(website)
-
-        except ValueError as exc: return api_error(exc)
-
-    report = research_ngo(ngo["name"], website)
-
-    db.save_ngo_report(ngo["id"], website, report["state"], report)
-
+@app.get("/api/ngos/<ngo_id>/highlights")
+def ngo_highlights(ngo_id):
+    ngo = db.one("SELECT id,name,website FROM ngos WHERE id=?", (ngo_id,))
+    if not ngo: return api_error("NGO not found.", 404)
+    cached = db.latest_ngo_report(ngo_id)
+    if _recent(cached, 24 * 7) or not _may_research(ngo_id):
+        return jsonify({**(cached["evidence"] if cached else {"awards": [], "work": [], "sources": []}), "cached": True})
+    report = research_ngo(ngo["name"], ngo["website"] or "")
+    if not db.save_ngo_report(ngo_id, ngo["website"] or "", report["state"], report) and cached:
+        return jsonify({**cached["evidence"], "cached": True, "stale": True})
     return jsonify(report)
-
 
 
 
