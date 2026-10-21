@@ -125,10 +125,38 @@ function selectInitialProfiles() {
   else if (role === "admin") state.role = "Admin";
   else state.role = "Visitor";
 }
+
 async function refreshBootstrap() {
-  state.data = await api("/api/bootstrap");
-  state.donationCache = null; // Refresh listing data after any mutation/bootstrap refresh.
+  const [data, restaurantRatings] = await Promise.all([
+    api("/api/bootstrap"),
+    api("/api/foodtrust/restaurant-reviews")
+  ]);
+
+  state.data = data;
+  state.data.restaurantRatings = restaurantRatings;
+  state.donationCache = null;
 }
+
+function restaurantRatingHTML(restaurantId) {
+  const rating = state.data?.restaurantRatings?.[restaurantId];
+
+  if (!rating || !rating.review_count) {
+    return `<span class="restaurant-rating">No ratings yet</span>`;
+  }
+
+  const average = Number(rating.average_rating).toFixed(1);
+  const stars = "★".repeat(Math.round(Number(rating.average_rating)))
+    + "☆".repeat(5 - Math.round(Number(rating.average_rating)));
+
+  return `
+    <span class="restaurant-rating"
+          title="${average} out of 5 from ${rating.review_count} review(s)">
+      <span class="rating-stars" aria-label="${average} out of 5 stars">${stars}</span>
+      <span>${average} (${rating.review_count})</span>
+    </span>
+  `;
+}
+
 function statusBadge(status) {
   const slug = normalise(status).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "unknown";
   return `<span class="status status-${slug}">${escapeHTML(status || "Unknown")}</span>`;
