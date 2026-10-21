@@ -713,13 +713,12 @@ def foodtrust_status():
 
 
 @app.get("/api/donations")
-
 def list_donations():
-
-    items = enriched_donations("ORDER BY d.created_at DESC")
-
+    items = enriched_donations(
+        "ORDER BY d.created_at DESC"
+    )
+    items = add_ngo_distances(items)
     return jsonify(items)
-
 
 
 
