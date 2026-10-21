@@ -209,6 +209,24 @@ SCHEMA = [
       CONSTRAINT fk_chat_message_conversation FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE,
       CONSTRAINT fk_chat_message_sender FOREIGN KEY (sender_user_id) REFERENCES users(id)
     ) {_TAIL}""",
+    
+    f"""CREATE TABLE IF NOT EXISTS restaurant_reviews (
+      id VARCHAR(64) PRIMARY KEY,
+      restaurant_id VARCHAR(64) NOT NULL,
+      ngo_id VARCHAR(64) NOT NULL,
+      rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      review TEXT,
+      created_at VARCHAR(32) NOT NULL,
+      updated_at VARCHAR(32) NOT NULL,
+      UNIQUE KEY unique_restaurant_ngo (restaurant_id, ngo_id),
+      CONSTRAINT fk_review_restaurant
+        FOREIGN KEY (restaurant_id) REFERENCES restaurants(id)
+        ON DELETE CASCADE,
+      CONSTRAINT fk_review_ngo
+        FOREIGN KEY (ngo_id) REFERENCES ngos(id)
+        ON DELETE CASCADE
+    ) {_TAIL}""",
+
 ]
 
 
