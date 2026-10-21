@@ -20,10 +20,10 @@ IS_PRODUCTION = bool(os.getenv("RENDER")) or os.getenv("APP_ENV", "").lower() ==
 
 # Report states that count as a real result. Failed lookups are never stored,
 # so they can no longer show up as a "trust available" badge.
-SAVEABLE_REPORT_STATES = {"Google review results found", "Profile information found"}
+SAVEABLE_REPORT_STATES = {"Google review results found", "Web review results found", "Profile information found"}
 FAILED_REPORT_STATES = (
     "API key not configured", "API request failed", "Research unavailable",
-    "No Google review excerpts found", "No profile information found",
+    "No Google review excerpts found", "No web review excerpts found", "No profile information found",
 )
 
 _legacy_backend = os.getenv("FOODBRIDGE_DB_BACKEND", "mysql").strip().lower()
@@ -32,6 +32,10 @@ if _legacy_backend not in {"mysql", "mariadb"}:
         "SQLite is no longer supported. FoodBridge now runs on MySQL/MariaDB only. "
         "Remove FOODBRIDGE_DB_BACKEND (or set it to 'mysql') and set the MYSQL_* variables."
     )
+
+
+# Only NGOs that completed a pickup from a restaurant may review it. Set to false to allow any NGO.
+REVIEWS_REQUIRE_PICKUP = os.getenv("FOODBRIDGE_REVIEWS_REQUIRE_PICKUP", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _now(precision="seconds"):
@@ -209,7 +213,6 @@ SCHEMA = [
       CONSTRAINT fk_chat_message_conversation FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE,
       CONSTRAINT fk_chat_message_sender FOREIGN KEY (sender_user_id) REFERENCES users(id)
     ) {_TAIL}""",
-    
     f"""CREATE TABLE IF NOT EXISTS restaurant_reviews (
       id VARCHAR(64) PRIMARY KEY,
       restaurant_id VARCHAR(64) NOT NULL,
@@ -219,14 +222,9 @@ SCHEMA = [
       created_at VARCHAR(32) NOT NULL,
       updated_at VARCHAR(32) NOT NULL,
       UNIQUE KEY unique_restaurant_ngo (restaurant_id, ngo_id),
-      CONSTRAINT fk_review_restaurant
-        FOREIGN KEY (restaurant_id) REFERENCES restaurants(id)
-        ON DELETE CASCADE,
-      CONSTRAINT fk_review_ngo
-        FOREIGN KEY (ngo_id) REFERENCES ngos(id)
-        ON DELETE CASCADE
+      CONSTRAINT fk_review_restaurant FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE,
+      CONSTRAINT fk_review_ngo FOREIGN KEY (ngo_id) REFERENCES ngos(id) ON DELETE CASCADE
     ) {_TAIL}""",
-
 ]
 
 
@@ -529,28 +527,56 @@ def save_ngo_report(ngo_id, website, state, evidence):
 def latest_ngo_report(ngo_id):
     return _latest("ngo_id", ngo_id)
 
-def _init_mysql_schema():
-    schema = [
-        # Your existing CREATE TABLE statements stay here...
 
-        """CREATE TABLE IF NOT EXISTS restaurant_reviews (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            restaurant_id VARCHAR(100) NOT NULL,
-            ngo_id VARCHAR(100) NOT NULL,
-            rating INT NOT NULL,
-            review TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                ON UPDATE CURRENT_TIMESTAMP,
-            CONSTRAINT chk_restaurant_rating
-                CHECK (rating BETWEEN 1 AND 5),
-            UNIQUE KEY unique_restaurant_ngo (restaurant_id, ngo_id),
-            FOREIGN KEY (restaurant_id)
-                REFERENCES restaurants(id) ON DELETE CASCADE,
-            FOREIGN KEY (ngo_id)
-                REFERENCES ngos(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB;
-        """,
+# --------------------------------------------------------------------------
+# Restaurant reviews (written by NGOs)
+# --------------------------------------------------------------------------
+def ngo_can_review(restaurant_id, ngo_id):
+    """True if this NGO has a completed pickup from the restaurant."""
+    return bool(one(
+        "SELECT 1 AS x FROM donations d JOIN requests q ON q.donation_id=d.id "
+        "WHERE d.restaurant_id=? AND q.ngo_id=? AND q.status='Accepted' AND d.status='Completed' LIMIT 1",
+        (restaurant_id, ngo_id)))
 
-        # Keep any remaining existing statements here...
-    ]
+
+def upsert_review(restaurant_id, ngo_id, rating, review=""):
+    """Create or update this NGO's single review of a restaurant."""
+    if not one("SELECT id FROM restaurants WHERE id=?", (restaurant_id,)):
+        raise LookupError("Restaurant not found.")
+    if REVIEWS_REQUIRE_PICKUP and not ngo_can_review(restaurant_id, ngo_id):
+        raise PermissionError("You can review a restaurant after completing a pickup from them.")
+    now = _now("microseconds")
+    with connect() as db:
+        db.execute(
+            "INSERT INTO restaurant_reviews (id,restaurant_id,ngo_id,rating,review,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?) "
+            "ON DUPLICATE KEY UPDATE rating=VALUES(rating), review=VALUES(review), updated_at=VALUES(updated_at)",
+            (str(uuid.uuid4()), restaurant_id, ngo_id, rating, review, now, now))
+
+
+def delete_review(restaurant_id, ngo_id):
+    with connect() as db:
+        cursor = db.execute("DELETE FROM restaurant_reviews WHERE restaurant_id=? AND ngo_id=?", (restaurant_id, ngo_id))
+        return cursor.rowcount > 0
+
+
+def reviews_for_restaurant(restaurant_id, limit=50):
+    return rows(
+        "SELECT r.id, r.rating, r.review, r.created_at, r.updated_at, n.id AS ngo_id, n.name AS ngo_name "
+        "FROM restaurant_reviews r JOIN ngos n ON n.id=r.ngo_id "
+        "WHERE r.restaurant_id=? ORDER BY r.updated_at DESC LIMIT ?", (restaurant_id, limit))
+
+
+def _summary(row):
+    return {"count": int(row["count"]), "average": round(float(row["average"]), 1) if row["average"] is not None else None}
+
+
+def review_summary(restaurant_id):
+    row = one("SELECT COUNT(*) AS count, AVG(rating) AS average FROM restaurant_reviews WHERE restaurant_id=?", (restaurant_id,))
+    return _summary(row)
+
+
+def review_summaries():
+    """Average rating and count for every reviewed restaurant, in one query: {restaurant_id: {...}}."""
+    return {r["restaurant_id"]: _summary(r) for r in rows(
+        "SELECT restaurant_id, COUNT(*) AS count, AVG(rating) AS average FROM restaurant_reviews GROUP BY restaurant_id")}
