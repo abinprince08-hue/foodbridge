@@ -379,27 +379,182 @@ function renderCreate() {
     }
   });
 }
+
 function renderDirectory() {
   const view = $("#view-directory");
-  const ngos = state.data?.ngos || [];
   if (!view) return;
-  view.innerHTML = `${heading("COMMUNITY NETWORK", "NGO directory", "See the service areas, collection arrangements and current needs shared by community organisations.")}
-    <div class="directory-grid">${ngos.map(org => {
-      let cats = [];
-      try { cats = Array.isArray(org.categories) ? org.categories : JSON.parse(org.categories || "[]"); } catch { cats = []; }
-      const publicInfo = state.data?.ngo_reports?.[org.id]?.evidence?.basic_info;
-      const website = safeHttpUrl(org.website);
-      return `<article class="ngo-card"><div class="ngo-head"><div class="ngo-icon" aria-hidden="true">⌂</div><div><h2>${escapeHTML(org.name)}</h2><p>${escapeHTML(org.location)} · ${escapeHTML(org.service_area)}</p></div></div>
-        <p>${escapeHTML(publicInfo || org.mission || "Community organisation")}</p>${publicInfo ? '<span class="pill">Source-linked public info</span>' : ""}
-        <div class="listing-tags">${cats.map(cat => `<span class="pill">${escapeHTML(cat)}</span>`).join("")}</div>
-        <p class="ngo-meta">Collection: ${escapeHTML(org.arrangements || "Details not provided")} · Capacity ${escapeHTML(org.capacity ?? "Not provided")} meals</p>
-        <div class="ngo-need"><b>Current need</b><p>${escapeHTML(org.need || "No current requirement posted.")}</p></div>
-        ${website ? `<p><a href="${escapeHTML(website)}" target="_blank" rel="noopener noreferrer">Organisation website ↗</a></p>` : ""}
-        <div class="provenance">${escapeHTML(org.info_status || "Information provided")}</div>
-        ${state.role === "Restaurant" ? `<p>Contact ${escapeHTML(org.contact || "not provided")} · ${escapeHTML(org.phone || "")}</p>` : ""}
-      </article>`;
-    }).join("") || '<div class="empty-state">No NGO profiles yet.</div>'}</div>`;
+
+  const ngos = state.data?.ngos || [];
+  const ngoReports = state.data?.ngo_reports || {};
+  const canAdmin = state.role === "Admin";
+
+  view.innerHTML = `
+    ${heading(
+      "COMMUNITY NETWORK",
+      "NGO directory",
+      "Explore NGO needs, collection arrangements and source-linked public information."
+    )}
+
+    <div class="directory-grid">
+      ${ngos.map(org => {
+        let categories = [];
+
+        try {
+          categories = Array.isArray(org.categories)
+            ? org.categories
+            : JSON.parse(org.categories || "[]");
+        } catch {
+          categories = [];
+        }
+
+        const report = ngoReports[org.id];
+        const evidence = report?.evidence || report || {};
+        const publicInfo = evidence.basic_info || "";
+        const sources = Array.isArray(evidence.sources)
+          ? evidence.sources
+          : [];
+        const website = safeHttpUrl(org.website);
+
+        const sourceLinks = sources.map(source => {
+          const url = safeHttpUrl(source.url);
+          const title = escapeHTML(
+            source.title || source.site_name || "Public source"
+          );
+
+          return `
+            <li>
+              ${url
+                ? `<a href="${escapeHTML(url)}"
+                     target="_blank"
+                     rel="noopener noreferrer">${title} ↗</a>`
+                : title}
+              ${source.snippet
+                ? `<p>${escapeHTML(source.snippet)}</p>`
+                : ""}
+            </li>
+          `;
+        }).join("");
+
+        return `
+          <article class="ngo-card">
+            <div class="ngo-head">
+              <div class="ngo-icon" aria-hidden="true">⌂</div>
+              <div>
+                <h2>${escapeHTML(org.name)}</h2>
+                <p>
+                  ${escapeHTML(org.location || "Location not provided")}
+                  ·
+                  ${escapeHTML(org.service_area || "Service area not provided")}
+                </p>
+              </div>
+            </div>
+
+            <p>
+              ${escapeHTML(
+                publicInfo ||
+                org.mission ||
+                "Public profile research has not been added yet."
+              )}
+            </p>
+
+            <p>
+              <strong>Research status:</strong>
+              ${escapeHTML(
+                report?.state ||
+                evidence.state ||
+                "Not researched yet"
+              )}
+            </p>
+
+            <div class="listing-tags">
+              ${categories.map(category =>
+                `<span class="pill">${escapeHTML(category)}</span>`
+              ).join("")}
+            </div>
+
+            <p class="ngo-meta">
+              Collection: ${escapeHTML(org.arrangements || "Not provided")}
+              · Capacity: ${escapeHTML(org.capacity ?? "Not provided")} meals
+            </p>
+
+            <div class="ngo-need">
+              <b>Current need</b>
+              <p>${escapeHTML(org.need || "No current requirement posted.")}</p>
+            </div>
+
+            ${website ? `
+              <p>
+                <a href="${escapeHTML(website)}"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                  Organisation website ↗
+                </a>
+              </p>
+            ` : ""}
+
+            ${sourceLinks ? `
+              <div class="ngo-public-sources">
+                <h3>Public sources</h3>
+                <ul>${sourceLinks}</ul>
+              </div>
+            ` : ""}
+
+            <div class="provenance">
+              ${escapeHTML(
+                org.info_status ||
+                "Organisation-provided details and public research are not independent certification."
+              )}
+            </div>
+
+            ${canAdmin ? `
+              <button
+                class="button button-secondary"
+                type="button"
+                data-research-ngo
+                data-ngo-id="${escapeHTML(org.id)}">
+                ${report ? "Refresh public research" : "Research public profile"}
+              </button>
+            ` : ""}
+          </article>
+        `;
+      }).join("") ||
+        '<div class="empty-state">No NGO profiles yet.</div>'}
+    </div>
+  `;
+
+  $$("[data-research-ngo]", view).forEach(button => {
+    button.addEventListener("click", async () => {
+      const ngoId = button.dataset.ngoId;
+
+      button.disabled = true;
+      button.textContent = "Researching…";
+
+      try {
+        const result = await api("/api/foodtrust/ngos", {
+          method: "POST",
+          body: JSON.stringify({
+            ngo_id: ngoId,
+            refresh: true
+          })
+        });
+
+        await refreshBootstrap();
+
+        toast(
+          result.state || "NGO research completed.",
+          "info"
+        );
+
+        renderDirectory();
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Try again";
+        toast(error.message || "NGO research failed.", "error");
+      }
+    });
+  });
 }
+
 async function renderDashboard() {
   const view=$("#view-dashboard");
   if(!state.auth){setPage("login");return;}
@@ -433,6 +588,7 @@ function openNeedModal(profile){
 }
 
 
+
 async function renderFoodTrust() {
   const view = $("#view-foodtrust");
   if (!view) return;
@@ -450,12 +606,14 @@ async function renderFoodTrust() {
 
   const canAdmin = state.role === "Admin";
   const ownRestaurant = selectedProfile();
+  const restaurants = state.data?.restaurants || [];
+  const reports = state.data?.reports || {};
 
   view.innerHTML = `
     ${heading(
       "PUBLIC INFORMATION",
       "FoodTrust",
-      "Browse restaurant details and public NGO information."
+      "Browse restaurant review research and its public sources."
     )}
 
     <div class="trust-strip">
@@ -464,7 +622,7 @@ async function renderFoodTrust() {
         <p>
           ${escapeHTML(connection.message)}
           Research results may be incomplete. Open linked sources
-          to verify the latest information.
+          to verify the information.
         </p>
       </div>
 
@@ -479,10 +637,6 @@ async function renderFoodTrust() {
   `;
 
   const content = $("#foodtrust-content");
-  const restaurants = state.data?.restaurants || [];
-  const ngos = state.data?.ngos || [];
-  const ngoReports = state.data?.ngo_reports || {};
-  const restaurantReports = state.data?.reports || {};
 
   const canResearchRestaurant = restaurant =>
     canAdmin ||
@@ -491,9 +645,8 @@ async function renderFoodTrust() {
       ownRestaurant?.id === restaurant.id
     );
 
-  // Restaurant review cards
   const restaurantCards = restaurants.map(restaurant => {
-    const report = restaurantReports[restaurant.id];
+    const report = reports[restaurant.id];
 
     return `
       <article class="panel">
@@ -518,94 +671,17 @@ async function renderFoodTrust() {
 
         ${report
           ? trustReport(report, restaurant.name)
-          : '<p class="field-hint">No Google review search saved yet.</p>'}
+          : '<p class="field-hint">No review research saved yet.</p>'}
       </article>
     `;
   }).join("");
 
-  // NGO public information cards
-  const ngoCards = ngos.map(ngo => {
-    const report = ngoReports[ngo.id];
-    const data = report?.evidence || report || {};
-    const sources = Array.isArray(data.sources)
-      ? data.sources
-      : [];
-
-    const sourceList = sources.map(source => {
-      const url = safeHttpUrl(source.url);
-      const title = escapeHTML(
-        source.title || source.site_name || "Public source"
-      );
-
-      return `
-        <li>
-          ${url
-            ? `<a href="${escapeHTML(url)}"
-                 target="_blank"
-                 rel="noopener noreferrer">${title} ↗</a>`
-            : title}
-
-          ${source.snippet
-            ? `<p>${escapeHTML(source.snippet)}</p>`
-            : ""}
-        </li>
-      `;
-    }).join("");
-
-    return `
-      <article class="panel">
-        <h3>${escapeHTML(ngo.name)}</h3>
-
-        <p>
-          ${escapeHTML(ngo.location || "Location not provided")}
-        </p>
-
-        ${canAdmin ? `
-          <button
-            class="button button-secondary"
-            type="button"
-            data-research-ngo
-            data-ngo-id="${escapeHTML(ngo.id)}">
-            ${report
-              ? "Refresh NGO research"
-              : "Research NGO"}
-          </button>
-        ` : ""}
-
-        <p>
-          <strong>
-            ${escapeHTML(
-              report?.state ||
-              data.state ||
-              "No research saved yet"
-            )}
-          </strong>
-        </p>
-
-        <p>
-          ${escapeHTML(
-            data.basic_info ||
-            data.note ||
-            "No public profile information found yet."
-          )}
-        </p>
-
-        ${sourceList
-          ? `<h4>Sources</h4><ul>${sourceList}</ul>`
-          : ""}
-      </article>
-    `;
-  }).join("");
-
-  // Render both sections
   content.innerHTML = `
     <section class="section">
       <div class="section-heading">
         <div>
-          <h2>Restaurants · Google reviews</h2>
-          <p>
-            Research returns available public review search excerpts.
-          </p>
+          <h2>Restaurants · Public reviews</h2>
+          <p>Review available public search excerpts and sources.</p>
         </div>
       </div>
 
@@ -614,38 +690,20 @@ async function renderFoodTrust() {
           '<div class="empty-state">No restaurants yet.</div>'}
       </div>
     </section>
-
-    <section class="section">
-      <div class="section-heading">
-        <div>
-          <h2>NGOs · Public profile research</h2>
-          <p>
-            Research publicly available information about registered
-            NGOs. NGO research is available to administrators.
-          </p>
-        </div>
-      </div>
-
-      <div class="directory-grid">
-        ${ngoCards ||
-          '<div class="empty-state">No NGO profiles yet.</div>'}
-      </div>
-    </section>
   `;
 
-  // Restaurant research button
   $$("[data-research]", content).forEach(button => {
     button.addEventListener("click", async () => {
-      const orgId = button.dataset.orgId;
+      const restaurantId = button.dataset.orgId;
 
       button.disabled = true;
-      button.textContent = "Searching...";
+      button.textContent = "Searching…";
 
       try {
         const result = await api("/api/foodtrust", {
           method: "POST",
           body: JSON.stringify({
-            restaurant_id: orgId
+            restaurant_id: restaurantId
           })
         });
 
@@ -660,39 +718,7 @@ async function renderFoodTrust() {
       } catch (error) {
         button.disabled = false;
         button.textContent = "Try again";
-        toast(error.message, "error");
-      }
-    });
-  });
-
-  // NGO research button
-  $$("[data-research-ngo]", content).forEach(button => {
-    button.addEventListener("click", async () => {
-      const ngoId = button.dataset.ngoId;
-
-      button.disabled = true;
-      button.textContent = "Researching...";
-
-      try {
-        const result = await api("/api/foodtrust/ngos", {
-          method: "POST",
-          body: JSON.stringify({
-            ngo_id: ngoId
-          })
-        });
-
-        await refreshBootstrap();
-
-        toast(
-          result.state || "NGO research completed.",
-          "info"
-        );
-
-        await renderFoodTrust();
-      } catch (error) {
-        button.disabled = false;
-        button.textContent = "Try again";
-        toast(error.message, "error");
+        toast(error.message || "Restaurant research failed.", "error");
       }
     });
   });
