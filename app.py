@@ -949,16 +949,16 @@ def foodtrust():
 
 def foodtrust_ngo():
 website = str(data.get("website") or restaurant["website"] or "").strip()
-if website:
-    try: website = validate_public_url(website)
-    except ValueError as exc: return api_error(exc)
-cached = db.latest_report(restaurant["id"])
-if _recent(cached) and not data.get("refresh"):
-    return jsonify({**cached["evidence"], "cached": True})
-report = research_restaurant(website, restaurant["name"], restaurant["location"] or "")
-if not db.save_report(restaurant["id"], website, report["state"], report) and cached:
-    return jsonify({**cached["evidence"], "cached": True, "stale": True, "live_error": report["note"]})
-return jsonify(report)
+    if website:
+          try: website = validate_public_url(website)
+          except ValueError as exc: return api_error(exc)
+    cached = db.latest_report(restaurant["id"])
+    if _recent(cached) and not data.get("refresh"):
+          return jsonify({**cached["evidence"], "cached": True})
+    report = research_restaurant(website, restaurant["name"], restaurant["location"] or "")
+    if not db.save_report(restaurant["id"], website, report["state"], report) and cached:
+          return jsonify({**cached["evidence"], "cached": True, "stale": True, "live_error": report["note"]})
+    return jsonify(report)
 
 @app.get("/api/ngos/<ngo_id>/highlights")
 def ngo_highlights(ngo_id):
