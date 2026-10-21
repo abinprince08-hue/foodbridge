@@ -463,6 +463,150 @@ def contact_us():
     return jsonify({"message": "Thanks for contacting FoodBridge. Your message has been saved."}), 201
 
 
+# RESTAURANT RATINGS AND NGO REVIEWS
+
+@app.get("/api/foodtrust/restaurant-reviews")
+def restaurant_review_summaries():
+    """Return the average rating and number of reviews for every restaurant."""
+    rows = db.rows("""
+        SELECT restaurant_id, AVG(rating) AS average_rating,
+               COUNT(*) AS review_count
+        FROM restaurant_reviews
+        GROUP BY restaurant_id
+    """)
+
+    summaries = {}
+    for row in rows:
+        summaries[row["restaurant_id"]] = {
+            "average_rating": round(float(row["average_rating"]), 1),
+            "review_count": int(row["review_count"]),
+        }
+
+    return jsonify(summaries)
+
+
+@app.get("/api/foodtrust/restaurant-reviews/<restaurant_id>")
+def restaurant_reviews(restaurant_id):
+    """Return a restaurant's public reviews."""
+    restaurant = db.one(
+        "SELECT id, name FROM restaurants WHERE id=?",
+        (restaurant_id,),
+    )
+    if not restaurant:
+        return api_error("Restaurant not found.", 404)
+
+    rows = db.rows("""
+        SELECT rr.rating, rr.review, rr.created_at, n.name AS ngo_name
+        FROM restaurant_reviews rr
+        JOIN ngos n ON n.id = rr.ngo_id
+        WHERE rr.restaurant_id = ?
+        ORDER BY rr.updated_at DESC
+    """, (restaurant_id,))
+
+    summary = db.one("""
+        SELECT AVG(rating) AS average_rating, COUNT(*) AS review_count
+        FROM restaurant_reviews
+        WHERE restaurant_id = ?
+    """, (restaurant_id,))
+
+    return jsonify({
+        "restaurant": restaurant,
+        "average_rating": (
+            round(float(summary["average_rating"]), 1)
+            if summary and summary["average_rating"] is not None
+            else None
+        ),
+        "review_count": int(summary["review_count"]) if summary else 0,
+        "reviews": rows,
+    })
+
+
+@app.post("/api/foodtrust/restaurant-reviews/<restaurant_id>")
+@require_roles("ngo")
+def submit_restaurant_review(restaurant_id):
+    """Allow an approved NGO to rate a restaurant after an accepted request."""
+    ngo_id = g.current_user.get("profile_id")
+    if not ngo_id:
+        return api_error("Your account is not linked to an NGO profile.", 403)
+
+    restaurant = db.one(
+        "SELECT id FROM restaurants WHERE id=?",
+        (restaurant_id,),
+    )
+    if not restaurant:
+        return api_error("Restaurant not found.", 404)
+
+    # Only an NGO with an accepted request involving this restaurant may review it.
+    accepted_request = db.one("""
+        SELECT q.id
+        FROM requests q
+        JOIN donations d ON d.id = q.donation_id
+        WHERE d.restaurant_id = ?
+          AND q.ngo_id = ?
+          AND q.status = 'Accepted'
+        LIMIT 1
+    """, (restaurant_id, ngo_id))
+
+    if not accepted_request:
+        return api_error(
+            "You can review a restaurant only after it accepts one of your requests.",
+            403,
+        )
+
+    data = body_json()
+
+    try:
+        rating = int(data.get("rating"))
+    except (TypeError, ValueError):
+        return api_error("Choose a rating from 1 to 5.")
+
+    if rating < 1 or rating > 5:
+        return api_error("Rating must be between 1 and 5.")
+
+    review = str(data.get("review", "")).strip()
+    if len(review) > 2000:
+        return api_error("Review must be 2,000 characters or fewer.")
+
+    now = datetime.now().isoformat(timespec="seconds")
+    review_id = uuid.uuid4().hex
+
+    try:
+        with db.connect() as conn:
+            if db.DB_BACKEND == "mysql":
+                conn.execute("""
+                    INSERT INTO restaurant_reviews
+                        (id, restaurant_id, ngo_id, rating, review,
+                         created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        rating = VALUES(rating),
+                        review = VALUES(review),
+                        updated_at = VALUES(updated_at)
+                """, (
+                    review_id, restaurant_id, ngo_id, rating,
+                    review, now, now,
+                ))
+            else:
+                conn.execute("""
+                    INSERT INTO restaurant_reviews
+                        (id, restaurant_id, ngo_id, rating, review,
+                         created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(restaurant_id, ngo_id)
+                    DO UPDATE SET
+                        rating = excluded.rating,
+                        review = excluded.review,
+                        updated_at = excluded.updated_at
+                """, (
+                    review_id, restaurant_id, ngo_id, rating,
+                    review, now, now,
+                ))
+    except Exception:
+        app.logger.exception("Could not save restaurant review")
+        return api_error("Could not save the review. Please try again.", 500)
+
+    return jsonify({"message": "Your restaurant review has been saved."}), 201
+
 
 
 
