@@ -395,8 +395,7 @@ if (state.role === "NGO") {
       </div>`;
   }
 }
-    view.innerHTML=`<button class="button button-quiet" data-page="explore">← Back to donations</button><div class="page-heading" style="margin-top:15px"><div class="eyebrow">${escapeHTML(item.ref)}</div><h1>${escapeHTML(item.title)}</h1><p>${escapeHTML(item.restaurant_name)}${restaurantRatingHTML(item.restaurant_id)}· ${escapeHTML(item.location)}</p></div><div class="content-grid"><div><div class="detail-photo">${foodPhoto}</div><h2 class="detail-title">${escapeHTML(item.quantity)} ${escapeHTML(item.unit)} · ${escapeHTML(item.category)}</h2><div class="listing-tags">${statusBadge(item.status)}${item.trust_available?'<span class="pill">FoodTrust evidence available</span>':""}</div><div class="detail-section"><h2>About this donation</h2><p>${escapeHTML(item.description||"No additional description provided.")}</p></div><div class="detail-section"><h2>Collection details</h2><p><b>Available from:</b> ${escapeHTML(fmtTime(item.available_from))}<br><b>Pickup deadline:</b> ${escapeHTML(fmtTime(item.deadline))}<br><b>Collection point:</b> ${escapeHTML(item.location)}<br><b>Storage and handling:</b> ${escapeHTML(item.handling||"Not provided")}<br><b>Packaging:</b> ${escapeHTML(item.packaging||"Not provided")}<br><b>Allergens:</b> ${escapeHTML(item.allergens||"Not provided")}${item.refrigeration?"<br><b>Requires refrigeration</b>":""}</p>${item.contact_instructions?`<p><b>Collection instructions:</b> ${escapeHTML(item.contact_instructions)}</p>`:""}<div class="notice warning">FoodBridge does not certify food safety. Confirm applicable handling and collection conditions before accepting.</div></div></div><aside><div class="panel"><h2>Donor</h2><div class="donor-name">${escapeHTML(item.restaurant_name)}</div><p>${escapeHTML(item.restaurant_location||"")}</p>${donorWebsiteUrl?`<a href="${escapeHTML(donorWebsiteUrl)}" target="_blank" rel="noopener noreferrer">Visit submitted website ↗</a>`:""}</div>${trustReport(item.foodtrust,item.restaurant_name)}${chatButton}${actionPanel}</aside></div>`;
-    $("#request-form")?.addEventListener("submit", async event => {
+    view.innerHTML=`<button class="button button-quiet" data-page="explore">← Back to donations</button><div class="page-heading" style="margin-top:15px"><div class="eyebrow">${escapeHTML(item.ref)}</div><h1>${escapeHTML(item.title)}</h1><p>${escapeHTML(item.restaurant_name)}${restaurantRatingHTML(item.restaurant_id)}· ${escapeHTML(item.location)}</p></div><div class="content-grid"><div><div class="detail-photo">${foodPhoto}</div><h2 class="detail-title">${escapeHTML(item.quantity)} ${escapeHTML(item.unit)} · ${escapeHTML(item.category)}</h2><div class="listing-tags">${statusBadge(item.status)}${item.trust_available?'<span class="pill">FoodTrust evidence available</span>':""}</div><div class="detail-section"><h2>About this donation</h2><p>${escapeHTML(item.description||"No additional description provided.")}</p></div><div class="detail-section"><h2>Collection details</h2><p><b>Available from:</b> ${escapeHTML(fmtTime(item.available_from))}<br><b>Pickup deadline:</b> ${escapeHTML(fmtTime(item.deadline))}<br><b>Collection point:</b> ${escapeHTML(item.location)}<br><b>Storage and handling:</b> ${escapeHTML(item.handling||"Not provided")}<br><b>Packaging:</b> ${escapeHTML(item.packaging||"Not provided")}<br><b>Allergens:</b> ${escapeHTML(item.allergens||"Not provided")}${item.refrigeration?"<br><b>Requires refrigeration</b>":""}</p>${item.contact_instructions?`<p><b>Collection instructions:</b> ${escapeHTML(item.contact_instructions)}</p>`:""}<div class="notice warning">FoodBridge does not certify food safety. Confirm applicable handling and collection conditions before accepting.</div></div></div><aside><div class="panel"><h2>Donor</h2><div class="donor-name">${escapeHTML(item.restaurant_name)}</div><p>${escapeHTML(item.restaurant_location||"")}</p>${donorWebsiteUrl?`<a href="${escapeHTML(donorWebsiteUrl)}" target="_blank" rel="noopener noreferrer">Visit submitted website ↗</a>`:""}</div>${trustReport(item.foodtrust,item.restaurant_name)}${reviewPanel}${chatButton}${actionPanel}</aside></div>`;$("#request-form")?.addEventListener("submit", async event => {
       event.preventDefault();
       const submit = event.currentTarget.querySelector('button[type="submit"]');
       const quantity = Number($("#request-qty").value);
@@ -418,6 +417,43 @@ if (state.role === "NGO") {
         toast(error.message, "error");
       }
     });
+    
+$("#restaurant-review-form", view)?.addEventListener(
+  "submit",
+  async event => {
+    event.preventDefault();
+
+    const form = event.currentTarget;
+    const submitButton = form.querySelector('button[type="submit"]');
+
+    try {
+      submitButton.disabled = true;
+      submitButton.textContent = "Saving review…";
+
+      await api(
+        `/api/foodtrust/restaurant-reviews/${encodeURIComponent(
+          form.dataset.restaurantId
+        )}`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            rating: form.elements.rating.value,
+            review: form.elements.review.value.trim()
+          })
+        }
+      );
+
+      toast("Your review has been saved.");
+      await refreshBootstrap();
+      renderDetail(id);
+    } catch (error) {
+      toast(error.message, "error");
+      submitButton.disabled = false;
+      submitButton.textContent = "Submit review";
+    }
+  }
+);
+
     $$('[data-request-action]',view).forEach(button=>button.addEventListener("click",async()=>{try{await api(`/api/requests/${button.dataset.requestId}/${button.dataset.requestAction}`,{method:"POST",body:"{}"});toast(`Request ${button.dataset.requestAction}ed.`);await refreshBootstrap();renderDetail(id);}catch(error){toast(error.message,"error");}}));
     $$('[data-status]',view).forEach(button=>button.addEventListener("click",async()=>{const status=button.dataset.status;if(status==="Cancelled"&&!confirm("Cancel this donation? It will no longer be available to NGOs."))return;try{await api(`/api/donations/${encodeURIComponent(item.id)}/status`,{method:"POST",body:JSON.stringify({status})});toast(`Donation marked ${status.toLowerCase()}.`);await refreshBootstrap();renderDetail(id);}catch(error){toast(error.message,"error");}}));
   } catch(error) { view.innerHTML=`<div class="empty-state"><strong>Could not open this donation</strong>${escapeHTML(error.message)}<br><button class="button button-secondary" data-page="explore" style="margin-top:12px">Back to donations</button></div>`; }
