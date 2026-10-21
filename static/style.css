@@ -1088,6 +1088,22 @@ a:hover { text-decoration: underline; }
     padding: 14px;
   }
 }
+.donation-card {
+  position: relative;
+}
+
+.distance-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eaf4f4;
+  color: #183b4e;
+  font-size: 12px;
+  font-weight: 600;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *,
