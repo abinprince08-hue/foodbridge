@@ -948,7 +948,7 @@ def foodtrust():
 @require_roles("admin")
 
 def foodtrust_ngo():
-website = str(data.get("website") or restaurant["website"] or "").strip()
+    website = str(data.get("website") or restaurant["website"] or "").strip()
     if website:
           try: website = validate_public_url(website)
           except ValueError as exc: return api_error(exc)
