@@ -423,7 +423,10 @@
     grid-column: auto;
   }
 }
-```
+
+#view-explore .search-wrap svg {
+  top: calc(50% + 4px) !important;
+}
 
 /* FOODBRIDGE CHAT CSS: END */
 /* Keep your existing CSS above these markers */
