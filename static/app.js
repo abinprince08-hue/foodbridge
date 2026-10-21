@@ -353,6 +353,48 @@ async function renderDetail(id) {
       if(mine&&item.status==="Accepted")actionPanel='<div class="panel"><h2>Collection</h2><p>Your request is accepted. Confirm when the food has been collected.</p><button class="button button-primary" data-status="Picked up">Confirm pickup</button></div>';
       if(mine&&item.status==="Picked up")actionPanel='<div class="panel"><h2>Handover</h2><p>Confirm the handover when the donation has been received.</p><button class="button button-primary" data-status="Completed">Confirm handover complete</button></div>';
     }
+    
+let reviewPanel = "";
+
+if (state.role === "NGO") {
+  const accepted = (item.requests || []).some(
+    req => req.ngo_id === ownProfile?.id && req.status === "Accepted"
+  );
+
+  if (accepted) {
+    reviewPanel = `
+      <div class="panel">
+        <h2>Rate this restaurant</h2>
+        <p>Share your experience with other NGOs.</p>
+
+        <form id="restaurant-review-form"
+              data-restaurant-id="${escapeHTML(item.restaurant_id)}">
+          <div class="field">
+            <label for="restaurant-rating">Your rating</label>
+            <select id="restaurant-rating" name="rating" required>
+              <option value="">Choose stars</option>
+              <option value="5">★★★★★ — Excellent</option>
+              <option value="4">★★★★ — Good</option>
+              <option value="3">★★★ — Average</option>
+              <option value="2">★★ — Poor</option>
+              <option value="1">★ — Very poor</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="restaurant-review">Review (optional)</label>
+            <textarea id="restaurant-review" name="review"
+              maxlength="2000"
+              placeholder="Describe your experience…"></textarea>
+          </div>
+
+          <button class="button button-primary" type="submit">
+            Submit review
+          </button>
+        </form>
+      </div>`;
+  }
+}
     view.innerHTML=`<button class="button button-quiet" data-page="explore">← Back to donations</button><div class="page-heading" style="margin-top:15px"><div class="eyebrow">${escapeHTML(item.ref)}</div><h1>${escapeHTML(item.title)}</h1><p>${escapeHTML(item.restaurant_name)} · ${escapeHTML(item.location)}</p></div><div class="content-grid"><div><div class="detail-photo">${foodPhoto}</div><h2 class="detail-title">${escapeHTML(item.quantity)} ${escapeHTML(item.unit)} · ${escapeHTML(item.category)}</h2><div class="listing-tags">${statusBadge(item.status)}${item.trust_available?'<span class="pill">FoodTrust evidence available</span>':""}</div><div class="detail-section"><h2>About this donation</h2><p>${escapeHTML(item.description||"No additional description provided.")}</p></div><div class="detail-section"><h2>Collection details</h2><p><b>Available from:</b> ${escapeHTML(fmtTime(item.available_from))}<br><b>Pickup deadline:</b> ${escapeHTML(fmtTime(item.deadline))}<br><b>Collection point:</b> ${escapeHTML(item.location)}<br><b>Storage and handling:</b> ${escapeHTML(item.handling||"Not provided")}<br><b>Packaging:</b> ${escapeHTML(item.packaging||"Not provided")}<br><b>Allergens:</b> ${escapeHTML(item.allergens||"Not provided")}${item.refrigeration?"<br><b>Requires refrigeration</b>":""}</p>${item.contact_instructions?`<p><b>Collection instructions:</b> ${escapeHTML(item.contact_instructions)}</p>`:""}<div class="notice warning">FoodBridge does not certify food safety. Confirm applicable handling and collection conditions before accepting.</div></div></div><aside><div class="panel"><h2>Donor</h2><div class="donor-name">${escapeHTML(item.restaurant_name)}</div><p>${escapeHTML(item.restaurant_location||"")}</p>${donorWebsiteUrl?`<a href="${escapeHTML(donorWebsiteUrl)}" target="_blank" rel="noopener noreferrer">Visit submitted website ↗</a>`:""}</div>${trustReport(item.foodtrust,item.restaurant_name)}${chatButton}${actionPanel}</aside></div>`;
     $("#request-form")?.addEventListener("submit", async event => {
       event.preventDefault();
