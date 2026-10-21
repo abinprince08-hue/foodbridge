@@ -296,9 +296,32 @@ def _failure(kind: str, state: str, note: str) -> dict:
 # --------------------------------------------------------------------------
 # Restaurants
 # --------------------------------------------------------------------------
+_REVIEW_WORDS = re.compile(r"review|rating|rated|stars?|★", re.I)
+_MAPS_HOSTS = {"google.com", "www.google.com", "maps.google.com", "google.co.in", "www.google.co.in",
+               "maps.google.co.in", "maps.app.goo.gl", "goo.gl"}
+
+
+def _is_maps_url(candidate: str) -> bool:
+    parsed = urlparse(candidate)
+    host = (parsed.hostname or "").lower()
+    return host in _MAPS_HOSTS and ("/maps" in parsed.path.lower() or host in {"maps.app.goo.gl", "goo.gl"})
+
+
+def _restaurant_queries(name: str, location: str = "") -> list[str]:
+    place = f" {location.strip()}" if location and location.strip() else ""
+    return [
+        f'site:google.com/maps/place "{name}" reviews{place}',
+        f'site:google.com/maps "{name}" ratings{place}',
+        f'"{name}" restaurant reviews rating{place}',   # fallback: other review sites
+    ]
+
 
 def research_restaurant(url: str, restaurant_name: str = "", location: str = "") -> dict:
-    """Find matching Google Maps search excerpts for a restaurant."""
+    """Find review excerpts for a restaurant.
+
+    Google Maps results are preferred. If none have usable text, excerpts from other
+    sites are shown instead, each clearly labelled with the site it came from.
+    """
     api_key = _get_api_key()
     if not api_key:
         return _no_key("restaurant")
@@ -309,156 +332,96 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
             name = urlparse(validate_public_url(url)).hostname or ""
         except ValueError:
             name = ""
-
     if not name:
-        return _failure(
-            "restaurant",
-            "Research unavailable",
-            "A restaurant name is needed to search for reviews.",
-        )
+        return _failure("restaurant", "Research unavailable", "A restaurant name is needed to search for reviews.")
 
-    place = f" {location.strip()}" if location and location.strip() else ""
-
-    queries = [
-        f'site:google.com/maps/place "{name}" customer reviews{place}',
-        f'site:google.com/maps "{name}" ratings reviews{place}',
-        f'"{name}" Google Maps customer reviews{place}',
-    ]
-
-    tasks = {
-        f"q{i}": (lambda q=q: _search(q, api_key))
-        for i, q in enumerate(queries)
-    }
+    queries = _restaurant_queries(name, location)
+    tasks = {f"q{i}": (lambda q=q: _search(q, api_key)) for i, q in enumerate(queries)}
     results, errors, timed_out = _run_parallel(tasks)
 
     if not results:
-        note = (
-            _api_error_note(errors[0], "search Google reviews")
-            if errors
-            else "TinyFish took too long to respond. Try again shortly."
-        )
+        note = _api_error_note(errors[0], "search for reviews") if errors else \
+            "TinyFish took too long to respond. Try again shortly."
         return _failure("restaurant", "API request failed", note)
 
     tokens = _tokens(name)
-    allowed_hosts = {
-        "google.com",
-        "www.google.com",
-        "maps.google.com",
-        "google.co.in",
-        "www.google.co.in",
-        "maps.google.co.in",
-        "maps.app.goo.gl",
-        "goo.gl",
-    }
-
-    seen, matches = set(), []
-
+    seen, maps_matches, web_matches = set(), [], []
     for batch in results.values():
         for item in batch:
             candidate = str(item.get("url") or "").strip()
-            if not candidate:
+            if not candidate or candidate in seen:
                 continue
-
-            parsed = urlparse(candidate)
-            host = (parsed.hostname or "").lower()
-
-            is_maps_url = (
-                host in allowed_hosts
-                and (
-                    "/maps" in parsed.path.lower()
-                    or host in {"maps.app.goo.gl", "goo.gl"}
-                )
-            )
-            if not is_maps_url:
-                continue
-
             title = _clean(item.get("title"))
-            snippet = _clean(
-                item.get("snippet")
-                or item.get("description")
-                or item.get("text")
-                or item.get("content")
-            )
-            haystack = f"{title} {snippet} {unquote_plus(candidate)}"
-
-            if candidate in seen or not _mentions(haystack, tokens):
+            snippet = _clean(item.get("snippet") or item.get("description") or item.get("text") or item.get("content"))
+            if not _mentions(f"{title} {snippet} {unquote_plus(candidate)}", tokens):
                 continue
-
             seen.add(candidate)
-            matches.append({
-                "url": candidate,
-                "title": title or "Google Maps result",
-                "snippet": snippet,
-            })
+            entry = {"url": candidate, "title": title or "Search result", "snippet": snippet}
+            if _is_maps_url(candidate):
+                maps_matches.append(entry)
+            elif snippet and _REVIEW_WORDS.search(f"{title} {snippet}"):
+                web_matches.append(entry)
+
+    maps_have_text = any(m["snippet"] for m in maps_matches)
+    chosen = [(m, True) for m in maps_matches[:3]]
+    if not maps_have_text:
+        chosen += [(w, False) for w in web_matches[:3]]
 
     featured, sources, rating = [], [], None
-
-    for item in matches[:5]:
-        candidate = item["url"]
-        title = item["title"]
-        snippet = item["snippet"]
-
-        sources.append({
-            "url": candidate,
-            "title": title,
-            "site_name": "Google Maps",
-            "retrieved_at": _now_iso(),
-            "source_type": "Google Search result",
-            "snippet": snippet,
-        })
-
-        if snippet:
-            featured.append({
-                "excerpt": snippet[:420],
-                "title": title,
-                "url": candidate,
-            })
-
+    for entry, is_maps in chosen:
+        site = "Google Maps" if is_maps else (urlparse(entry["url"]).hostname or "Web")
+        sources.append({"url": entry["url"], "title": entry["title"], "site_name": site, "retrieved_at": _now_iso(),
+                        "source_type": "Google Search result" if is_maps else "Web search result",
+                        "snippet": entry["snippet"]})
+        if entry["snippet"]:
+            featured.append({"excerpt": entry["snippet"][:420], "title": entry["title"], "url": entry["url"],
+                             "site_name": site})
             if rating is None:
-                m = (
-                    _RATING_A.search(snippet)
-                    or _RATING_B.search(snippet)
-                    or _RATING_A.search(title)
-                    or _RATING_B.search(title)
-                )
-                if m:
-                    rating = float(m.group(1))
+                text = f"{entry['snippet']} {entry['title']}"
+                m = _RATING_A.search(text) or _RATING_B.search(text)
+                rating = float(m.group(1)) if m else None
 
-    if featured:
-        state = "Google review results found"
-        note = (
-            "Search excerpts were found, but they may be incomplete or outdated. "
-            "Open the linked Google Maps results to check current reviews."
-        )
-    elif matches:
-        state = "Google Maps listing found"
-        note = (
-            "A matching listing was found, but TinyFish did not return usable "
-            "excerpt text. Open the linked source to inspect it."
-        )
+    if maps_have_text:
+        state, kind = "Google review results found", "google_maps"
+        note = ("Search excerpts were found, but they may be incomplete or outdated. "
+                "Open the linked Google Maps results to check current reviews.")
+    elif featured:
+        state, kind = "Web review results found", "web"
+        note = ("No Google Maps excerpts were available, so these come from other sites (named on each source). "
+                "They may be incomplete or outdated.")
+    elif maps_matches:
+        state, kind = "Google Maps listing found", "google_maps"
+        note = "A matching listing was found, but no excerpt text was returned. Open the linked source to read reviews."
     else:
-        state = "No Google review excerpts found"
-        note = (
-            "No matching Google Maps listing was found in the returned results. "
-            "Try the exact restaurant name and locality."
-        )
-
+        state, kind = "No Google review excerpts found", "none"
+        note = "No matching listing or review excerpts were found. Try the exact restaurant name and locality."
     if errors or timed_out:
         note += " Some searches failed or timed out, so results may be incomplete."
 
-    return {
-        "kind": "restaurant",
-        "state": state,
-        "observations": [],
-        "featured_reviews": featured,
-        "sources": sources,
-        "basic_info": "",
-        "awards": [],
-        "work": [],
-        "rating": rating,
-        "query": queries[0],
-        "note": note,
-    }
+    return {"kind": "restaurant", "state": state, "source_kind": kind, "observations": [],
+            "featured_reviews": featured, "sources": sources, "basic_info": "", "awards": [], "work": [],
+            "rating": rating, "query": queries[0], "note": note,
+            "diagnostics": {"returned": {q: len(r) for q, r in results.items()}, "failed": len(errors)}}
+
+
+def diagnose_restaurant(name: str, location: str = "") -> dict:
+    """Developer helper: show what TinyFish actually returns for each query.
+
+    Run:  python -c "import tinyfish_client as t, json; print(json.dumps(t.diagnose_restaurant('Singh Sahib','Dwarka'), indent=1))"
+    """
+    api_key = _get_api_key()
+    if not api_key:
+        return {"error": "TINYFISH_API_KEY is not set"}
+    out = {}
+    for query in _restaurant_queries(name, location):
+        try:
+            found = _search(query, api_key)
+            out[query] = {"count": len(found), "result_fields": sorted(found[0].keys()) if found else [],
+                          "urls": [str(r.get("url"))[:120] for r in found[:8]]}
+        except Exception as exc:
+            code = exc.response.status_code if isinstance(exc, requests.HTTPError) and exc.response is not None else type(exc).__name__
+            out[query] = {"error": f"{code}: {exc}"[:300]}
+    return out
 
 
 # --------------------------------------------------------------------------
