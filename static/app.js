@@ -437,6 +437,51 @@ async function renderFoodTrust() {
   view.innerHTML=`${heading("PUBLIC INFORMATION","FoodTrust","Browse restaurant details and Google review search results.")}<div class="trust-strip"><div><h3>Python backend · TinyFish Search + Fetch</h3><p>${escapeHTML(connection.message)} Review excerpts can be incomplete; open Google Maps for the current reviews.</p></div><span class="pill">${connection.configured?"Live research configured":"API key not configured"}</span></div><div id="foodtrust-content" class="section"></div>`;
   const content=$("#foodtrust-content");
   const restaurants=state.data?.restaurants||[];
+  
+const ngos = state.data?.ngos || [];
+const ngoReports = state.data?.ngo_reports || {};
+
+const ngoCards = ngos.map(ngo => {
+  const report = ngoReports[ngo.id];
+  const data = report?.evidence || report || {};
+  const sources = Array.isArray(data.sources) ? data.sources : [];
+
+  const sourceList = sources.map(source => {
+    const url = safeHttpUrl(source.url);
+    const title = escapeHTML(
+      source.title || source.site_name || "Public source"
+    );
+
+    return `<li>
+      ${url
+        ? `<a href="${escapeHTML(url)}" target="_blank"
+             rel="noopener noreferrer">${title}</a>`
+        : title}
+      <p>${escapeHTML(source.snippet || "")}</p>
+    </li>`;
+  }).join("");
+
+  const researchButton = canAdmin
+    ? `<button type="button"
+         data-research-ngo
+         data-ngo-id="${escapeHTML(ngo.id)}">
+         ${report ? "Refresh NGO research" : "Research NGO"}
+       </button>`
+    : "";
+
+  return `<article>
+    <h3>${escapeHTML(ngo.name)}</h3>
+    <p>${escapeHTML(ngo.location || "")}</p>
+    ${researchButton}
+    <p><strong>${escapeHTML(
+      report?.state || data.state || "No research saved yet"
+    )}</strong></p>
+    <p>${escapeHTML(
+      data.basic_info || data.note || "No public profile information found yet."
+    )}</p>
+    ${sourceList ? `<h4>Sources</h4><ul>${sourceList}</ul>` : ""}
+  </article>`;
+}).join("");
   const canAdmin=state.role==="Admin", ownRestaurant=selectedProfile();
   const canResearchRestaurant=restaurant=>canAdmin||(state.role==="Restaurant"&&ownRestaurant?.id===restaurant.id);
   const restaurantCards=restaurants.map(restaurant=>{const report=state.data?.reports?.[restaurant.id];return `<article class="panel"><div class="trust-org-head"><div><h2>${escapeHTML(restaurant.name)}</h2><p>${escapeHTML(restaurant.location)}</p></div>${canResearchRestaurant(restaurant)?`<button class="button button-secondary" data-research="restaurant" data-org-id="${escapeHTML(restaurant.id)}">${report?"Refresh Google reviews":"Search Google reviews"}</button>`:""}</div>${report?trustReport(report,restaurant.name):'<p class="field-hint">No Google review search saved yet.</p>'}</article>`;}).join("")||'<div class="empty-state">No restaurants yet.</div>';
