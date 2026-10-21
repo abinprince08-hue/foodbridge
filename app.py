@@ -588,7 +588,8 @@ def submit_restaurant_review(restaurant_id):
     except Exception:
         app.logger.exception("Could not save restaurant review")
         return api_error("Could not save the review. Please try again.", 500)
-        return jsonify({"message": "Your restaurant review has been saved."}), 201
+
+    return jsonify({"message": "Your restaurant review has been saved."}), 201
 
 
 
