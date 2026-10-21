@@ -297,30 +297,21 @@ def _failure(kind: str, state: str, note: str) -> dict:
 # Restaurants
 # --------------------------------------------------------------------------
 _REVIEW_WORDS = re.compile(r"review|rating|rated|stars?|★", re.I)
-_MAPS_HOSTS = {"google.com", "www.google.com", "maps.google.com", "google.co.in", "www.google.co.in",
-               "maps.google.co.in", "maps.app.goo.gl", "goo.gl"}
-
-
-def _is_maps_url(candidate: str) -> bool:
-    parsed = urlparse(candidate)
-    host = (parsed.hostname or "").lower()
-    return host in _MAPS_HOSTS and ("/maps" in parsed.path.lower() or host in {"maps.app.goo.gl", "goo.gl"})
 
 
 def _restaurant_queries(name: str, location: str = "") -> list[str]:
     place = f" {location.strip()}" if location and location.strip() else ""
     return [
-        f'site:google.com/maps/place "{name}" reviews{place}',
-        f'site:google.com/maps "{name}" ratings{place}',
-        f'"{name}" restaurant reviews rating{place}',   # fallback: other review sites
+        f'"{name}" restaurant reviews{place}',
+        f'"{name}" ratings customer reviews{place}',
     ]
 
 
 def research_restaurant(url: str, restaurant_name: str = "", location: str = "") -> dict:
-    """Find review excerpts for a restaurant.
+    """Find review excerpts for a restaurant using normal web search.
 
-    Google Maps results are preferred. If none have usable text, excerpts from other
-    sites are shown instead, each clearly labelled with the site it came from.
+    Each excerpt is labelled with the site it came from. Results must mention the
+    restaurant's name, and no more than two come from the same site.
     """
     api_key = _get_api_key()
     if not api_key:
@@ -345,7 +336,7 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
         return _failure("restaurant", "API request failed", note)
 
     tokens = _tokens(name)
-    seen, maps_matches, web_matches = set(), [], []
+    seen, matches = set(), []
     dropped = {"name_mismatch": 0, "not_review_like": 0}
     dropped_samples = []
     for batch in results.values():
@@ -361,47 +352,35 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
                     dropped_samples.append(f"{title[:60]} | {candidate[:90]}")
                 continue
             seen.add(candidate)
-            entry = {"url": candidate, "title": title or "Search result", "snippet": snippet}
-            if _is_maps_url(candidate):
-                maps_matches.append(entry)
-            elif snippet and _REVIEW_WORDS.search(f"{title} {snippet}"):
-                web_matches.append(entry)
-            else:
+            if not (snippet and _REVIEW_WORDS.search(f"{title} {snippet}")):
                 dropped["not_review_like"] += 1
+                continue
+            matches.append({"url": candidate, "title": title or "Search result", "snippet": snippet})
 
-    maps_have_text = any(m["snippet"] for m in maps_matches)
-    chosen = [(m, True) for m in maps_matches[:3]]
-    if not maps_have_text:
-        chosen += [(w, False) for w in web_matches[:3]]
+    featured, sources, rating, per_host = [], [], None, {}
+    for entry in matches:
+        host = (urlparse(entry["url"]).hostname or "web").lower().removeprefix("www.")
+        if per_host.get(host, 0) >= 2:
+            continue
+        per_host[host] = per_host.get(host, 0) + 1
+        sources.append({"url": entry["url"], "title": entry["title"], "site_name": host, "retrieved_at": _now_iso(),
+                        "source_type": "Web search result", "snippet": entry["snippet"]})
+        featured.append({"excerpt": entry["snippet"][:420], "title": entry["title"], "url": entry["url"],
+                         "site_name": host})
+        if rating is None:
+            text = f"{entry['snippet']} {entry['title']}"
+            m = _RATING_A.search(text) or _RATING_B.search(text)
+            rating = float(m.group(1)) if m else None
+        if len(featured) >= 5:
+            break
 
-    featured, sources, rating = [], [], None
-    for entry, is_maps in chosen:
-        site = "Google Maps" if is_maps else (urlparse(entry["url"]).hostname or "Web")
-        sources.append({"url": entry["url"], "title": entry["title"], "site_name": site, "retrieved_at": _now_iso(),
-                        "source_type": "Google Search result" if is_maps else "Web search result",
-                        "snippet": entry["snippet"]})
-        if entry["snippet"]:
-            featured.append({"excerpt": entry["snippet"][:420], "title": entry["title"], "url": entry["url"],
-                             "site_name": site})
-            if rating is None:
-                text = f"{entry['snippet']} {entry['title']}"
-                m = _RATING_A.search(text) or _RATING_B.search(text)
-                rating = float(m.group(1)) if m else None
-
-    if maps_have_text:
-        state, kind = "Google review results found", "google_maps"
-        note = ("Search excerpts were found, but they may be incomplete or outdated. "
-                "Open the linked Google Maps results to check current reviews.")
-    elif featured:
+    if featured:
         state, kind = "Web review results found", "web"
-        note = ("No Google Maps excerpts were available, so these come from other sites (named on each source). "
-                "They may be incomplete or outdated.")
-    elif maps_matches:
-        state, kind = "Google Maps listing found", "google_maps"
-        note = "A matching listing was found, but no excerpt text was returned. Open the linked source to read reviews."
+        note = ("Short excerpts from web search results; the site is named on each one. They may be incomplete, "
+                "outdated or about a similarly named place. Open the links to read the full reviews.")
     else:
-        state, kind = "No Google review excerpts found", "none"
-        note = "No matching listing or review excerpts were found. Try the exact restaurant name and locality."
+        state, kind = "No web review excerpts found", "none"
+        note = "No review excerpts matching this restaurant were found. Try the exact restaurant name and locality."
     if errors or timed_out:
         note += " Some searches failed or timed out, so results may be incomplete."
 
@@ -409,8 +388,7 @@ def research_restaurant(url: str, restaurant_name: str = "", location: str = "")
             "featured_reviews": featured, "sources": sources, "basic_info": "", "awards": [], "work": [],
             "rating": rating, "query": queries[0], "note": note,
             "diagnostics": {"returned": {q: len(r) for q, r in results.items()}, "failed": len(errors),
-                            "dropped": dropped, "dropped_samples": dropped_samples,
-                            "maps_matches": len(maps_matches), "web_matches": len(web_matches)}}
+                            "dropped": dropped, "dropped_samples": dropped_samples, "matched": len(matches)}}
 
 
 def diagnose_restaurant(name: str, location: str = "") -> dict:
