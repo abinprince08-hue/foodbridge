@@ -538,6 +538,202 @@ async function renderAdmin(){
     bindAdminSection();$("#refresh-admin").onclick=()=>renderAdmin();
   }catch(error){$("#admin-content").innerHTML=`<div class="notice warning">${escapeHTML(error.message)}</div>`;}
 }
+
+async function openPrivateChat(donationId) {
+  if (!state.auth) {
+    toast("Please log in to use chat.", "error");
+    return;
+  }
+
+  const isNGO = state.role === "NGO";
+  const isRestaurant = state.role === "Restaurant";
+
+  if (!isNGO && !isRestaurant) {
+    toast("Only restaurants and NGOs can use chat.", "error");
+    return;
+  }
+
+  let modal = document.getElementById("foodbridge-chat-modal");
+
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "foodbridge-chat-modal";
+
+    Object.assign(modal.style, {
+      position: "fixed",
+      inset: "0",
+      zIndex: "99999",
+      background: "rgba(0,0,0,.55)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "16px"
+    });
+
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <section style="
+      background:white;color:#183B4E;
+      width:100%;max-width:520px;
+      max-height:85vh;border-radius:14px;
+      padding:20px;display:flex;flex-direction:column;
+      gap:12px
+    ">
+      <header style="display:flex;justify-content:space-between">
+        <strong>Donation discussion</strong>
+        <button id="fb-chat-close" type="button">Close</button>
+      </header>
+      <div id="fb-chat-status" role="status">Opening chat...</div>
+      <div id="fb-chat-list"
+        style="overflow:auto;max-height:45vh"></div>
+      <div id="fb-chat-messages"
+        style="overflow:auto;max-height:45vh"></div>
+      <form id="fb-chat-form" style="display:none;gap:8px">
+        <input id="fb-chat-input" maxlength="2000"
+          placeholder="Write a message..." required
+          style="flex:1;min-width:0;padding:10px">
+        <button type="submit">Send</button>
+      </form>
+    </section>
+  `;
+
+  modal.querySelector("#fb-chat-close").onclick = () => {
+    modal.remove();
+  };
+
+  modal.onclick = event => {
+    if (event.target === modal) modal.remove();
+  };
+
+  try {
+    let conversations = [];
+
+    if (isNGO) {
+      const result = await api(
+        `/api/donations/${encodeURIComponent(donationId)}/chat`,
+        { method: "POST", body: "{}" }
+      );
+
+      conversations = [result.conversation];
+    } else {
+      const result = await api(
+        `/api/donations/${encodeURIComponent(donationId)}/chats`
+      );
+
+      conversations = result.chats || [];
+    }
+
+    const list = modal.querySelector("#fb-chat-list");
+    const status = modal.querySelector("#fb-chat-status");
+
+    if (!conversations.length) {
+      status.textContent =
+        "No conversations yet. An NGO must start a chat from this donation.";
+      return;
+    }
+
+    list.innerHTML = "";
+
+    conversations.forEach(conversation => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.style.cssText =
+        "display:block;width:100%;padding:12px;margin:5px 0";
+
+      button.textContent =
+        isNGO
+          ? `Chat about ${conversation.donation_title || "donation"}`
+          : `${conversation.ngo_name || "NGO"} — ${conversation.last_message || "Open conversation"}`;
+
+      button.onclick = () => openConversation(conversation.id);
+
+      list.appendChild(button);
+    });
+
+    async function openConversation(conversationId) {
+      status.textContent = "Loading messages...";
+      list.style.display = "none";
+
+      const form = modal.querySelector("#fb-chat-form");
+      const messagesBox = modal.querySelector("#fb-chat-messages");
+
+      form.style.display = "flex";
+
+      async function loadMessages() {
+        const result = await api(
+          `/api/chats/${encodeURIComponent(conversationId)}`
+        );
+
+        messagesBox.replaceChildren();
+
+        (result.messages || []).forEach(message => {
+          const row = document.createElement("div");
+          row.style.cssText =
+            "padding:8px;margin:5px 0;background:#EAF4F4;border-radius:8px";
+
+          const sender = document.createElement("strong");
+          sender.textContent = message.sender_name + ": ";
+
+          const body = document.createElement("span");
+          body.textContent = message.body;
+
+          const time = document.createElement("small");
+          time.textContent = " · " + message.created_at;
+
+          row.append(sender, body, time);
+          messagesBox.appendChild(row);
+        });
+
+        status.textContent = result.messages?.length
+          ? "Conversation opened"
+          : "No messages yet. Start the conversation!";
+
+        messagesBox.scrollTop = messagesBox.scrollHeight;
+      }
+
+      try {
+        await loadMessages();
+      } catch (error) {
+        status.textContent = error.message;
+        return;
+      }
+
+      form.onsubmit = async event => {
+        event.preventDefault();
+
+        const input = modal.querySelector("#fb-chat-input");
+        const sendButton = form.querySelector("button");
+        const body = input.value.trim();
+
+        if (!body) return;
+
+        sendButton.disabled = true;
+
+        try {
+          await api(
+            `/api/chats/${encodeURIComponent(conversationId)}/messages`,
+            {
+              method: "POST",
+              body: JSON.stringify({ body })
+            }
+          );
+
+          input.value = "";
+          await loadMessages();
+        } catch (error) {
+          status.textContent = error.message;
+        } finally {
+          sendButton.disabled = false;
+        }
+      };
+    }
+  } catch (error) {
+    modal.querySelector("#fb-chat-status").textContent =
+      "Could not open chat: " + error.message;
+  }
+}
 let globalEventsBound = false;
 function bindGlobalEvents(){
   if (globalEventsBound) return;
