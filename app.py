@@ -944,20 +944,53 @@ def foodtrust():
 
 
 @app.post("/api/foodtrust/ngos")
-
 @require_roles("admin")
-
 def foodtrust_ngo():
-    website = str(data.get("website") or restaurant["website"] or "").strip()
+    data = body_json()
+
+    ngo = db.one(
+        "SELECT * FROM ngos WHERE id=?",
+        (data.get("ngo_id"),)
+    )
+
+    if not ngo:
+        return api_error("NGO profile not found.", 404)
+
+    website = str(
+        data.get("website") or ngo["website"] or ""
+    ).strip()
+
     if website:
-          try: website = validate_public_url(website)
-          except ValueError as exc: return api_error(exc)
-    cached = db.latest_report(restaurant["id"])
+        try:
+            website = validate_public_url(website)
+        except ValueError as exc:
+            return api_error(exc)
+
+    cached = db.latest_ngo_report(ngo["id"])
+
     if _recent(cached) and not data.get("refresh"):
-          return jsonify({**cached["evidence"], "cached": True})
-    report = research_restaurant(website, restaurant["name"], restaurant["location"] or "")
-    if not db.save_report(restaurant["id"], website, report["state"], report) and cached:
-          return jsonify({**cached["evidence"], "cached": True, "stale": True, "live_error": report["note"]})
+        return jsonify({
+            **cached["evidence"],
+            "cached": True
+        })
+
+    report = research_ngo(ngo["name"], website)
+
+    saved = db.save_ngo_report(
+        ngo["id"],
+        website,
+        report["state"],
+        report
+    )
+
+    if not saved and cached:
+        return jsonify({
+            **cached["evidence"],
+            "cached": True,
+            "stale": True,
+            "live_error": report.get("note", "Research failed.")
+        })
+
     return jsonify(report)
 
 @app.get("/api/ngos/<ngo_id>/highlights")
